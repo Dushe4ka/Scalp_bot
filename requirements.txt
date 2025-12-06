@@ -1,0 +1,6 @@
+pybit
+python-dotenv
+aiogram
+fastapi
+celery
+redis

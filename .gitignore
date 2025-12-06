@@ -1,0 +1,21 @@
+# Виртуальное окружение
+myvenv/
+venv/
+env/
+
+# Файлы окружения
+.env
+
+# Кеши Python
+__pycache__/
+*.pyc
+
+# Логи
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# Системные файлы
+.DS_Store
