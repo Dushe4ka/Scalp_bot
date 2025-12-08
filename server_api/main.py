@@ -30,7 +30,7 @@ if __name__ == "__main__":
             f"Доступные эндпоинты:\n"
             f"{ngrok_url.public_url}/health\n"
             f"{ngrok_url.public_url}/monitoring\n"
-            f"{ngrok_url.public_url}/trading"
+            f"{ngrok_url.public_url}/short_3_limit"
         )
         send_notification_task.delay(notification_text)
         logger.info(f"✅ Уведомление отправлено подписчикам о запуске сервера")
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "server_api.main:app",
         host="127.0.0.1",
-        port=8000,
+        port=8050,
         reload=True
     )
     

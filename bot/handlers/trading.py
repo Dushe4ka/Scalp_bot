@@ -61,7 +61,7 @@ async def process_short_3_limit(message: Message, state: FSMContext):
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{SERVER_URL}/short_3_limit",
-                json={"symbol": symbol},
+                data=symbol,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
