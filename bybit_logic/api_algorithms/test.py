@@ -1,0 +1,3 @@
+from bybit_logic.api_algorithms.short_bu_ts_limit import TRIGGER_PERCENTAGE_INITIAL_TS
+
+print(TRIGGER_PERCENTAGE_INITIAL_TS)

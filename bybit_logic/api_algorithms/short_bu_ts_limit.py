@@ -20,10 +20,11 @@ logger = setup_logger(__name__)
 USDT_AMOUNT = float(os.getenv("USDT_AMOUNT"))
 TRIGGER_PERCENTAGE = float(os.getenv("TRIGGER_PERCENTAGE"))
 TRIGGER_TS_PERCENTAGE = float(os.getenv("TRIGGER_TS_PERCENTAGE"))
+TRIGGER_PERCENTAGE_INITIAL_TS = TRIGGER_PERCENTAGE + 1
 STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE"))
 POSITION_SIDE = os.getenv("POSITION_SIDE")
-USE_DEMO = bool(os.getenv("USE_DEMO"))
+USE_DEMO = False
 COUNT_LIMIT_ORDERS = int(os.getenv("COUNT_LIMIT_ORDERS"))
 LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
@@ -123,6 +124,20 @@ def price_trigger_callback():
             trailing_stop.activate(current_price)  # Активируем трейлинг стоп на текущей цене
             logger.info(f"🟢 Трейлинг стоп активирован на цене {current_price:.8g}")
             print(f"🟢 Трейлинг стоп активирован!")
+            
+            # КРИТИЧНО: Если прибыль уже больше TRIGGER_PERCENTAGE, 
+            # сразу устанавливаем первый стоп трейлинг стопа на текущей прибыли
+            # Это нужно, чтобы зафиксировать прибыль сразу, а не ждать дальнейшего роста
+            if price_change_percent >= TRIGGER_PERCENTAGE_INITIAL_TS:
+                logger.info(f"💰 Прибыль уже {price_change_percent:.2f}% (больше целевого {TRIGGER_PERCENTAGE}%)")
+                logger.info(f"📝 Сразу устанавливаю первый стоп трейлинг стопа на текущей цене...")
+                if trailing_stop.set_initial_stop(current_price):
+                    logger.info(f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%")
+                    print(f"✅ Первый стоп трейлинг стопа установлен!")
+                else:
+                    logger.warning(f"⚠️ Не удалось установить начальный стоп, он установится при следующем росте")
+            else:
+                logger.info(f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%")
         else:
             logger.error("❌ Объект трейлинг стопа не создан!")
             print("❌ Ошибка: трейлинг стоп не создан!")
@@ -362,9 +377,25 @@ def start_trading(symbol: str):
     """
     global entry_price, position_qty, position_opened, http_session, price_stream
     global previous_avg_price, previous_position_size, last_position_check_time
-    global SYMBOL, should_stop  # ✅ Добавляем should_stop
+    global SYMBOL, should_stop, trigger_called, current_price, price_change_percent
+    global pnl_usdt, last_log_time, trailing_stop
 
-    # ✅ Сбрасываем флаг остановки при новом запуске
+    # Сбрасываем все переменные состояния
+    SYMBOL = None
+    entry_price = None
+    position_qty = None
+    position_opened = False
+    trigger_called = False  
+    current_price = None
+    price_change_percent = 0.0
+    pnl_usdt = 0.0
+    last_log_time = 0
+    http_session = None
+    trailing_stop = None
+    previous_avg_price = None
+    previous_position_size = None
+    last_position_check_time = 0
+    price_stream = None
     should_stop = False
     
     SYMBOL = symbol.upper()
@@ -408,8 +439,6 @@ def start_trading(symbol: str):
         return
     
     logger.info(f"✅ Открытых позиций по {SYMBOL} не найдено, продолжаю запуск алгоритма")
-
-    global trailing_stop  # Объявляем, что используем глобальную переменную
 
     trailing_stop = TrailingStop(
         symbol=SYMBOL,

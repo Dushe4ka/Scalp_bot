@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from server_api.routes import health, monitoring, trading
+from server_api.routes import health, monitoring, trading, account
 from logger_config import setup_logger
 import uvicorn
 from server_api.utils import get_ngrok_url
@@ -19,6 +19,7 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(monitoring.router)
 app.include_router(trading.router)
+app.include_router(account.router)
 
 if __name__ == "__main__":
     try:

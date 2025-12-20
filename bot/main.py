@@ -1,6 +1,6 @@
 import asyncio
 from bot.utils.misc import bot, dp
-from bot.handlers import start, subscription, server, trading, navigation
+from bot.handlers import start, subscription, server, trading, navigation, account
 from logger_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -13,7 +13,8 @@ async def main():
     dp.include_router(server.router)
     dp.include_router(trading.router)
     dp.include_router(navigation.router)
-    
+    dp.include_router(account.router)
+
     logger.info("Бот запущен")
     
     # Запускаем polling

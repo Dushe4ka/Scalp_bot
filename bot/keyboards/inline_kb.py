@@ -9,6 +9,7 @@ def main_menu_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.button(text="🔔 Подписка", callback_data="subscription")
     kb.button(text="🖥 Сервер", callback_data="server")
     kb.button(text="📈 Трейдинг", callback_data="trading")
+    kb.button(text="👤 Аккаунт", callback_data="account")
     kb.adjust(1)
     return kb
 
@@ -74,6 +75,26 @@ def back_to_main_kb() -> InlineKeyboardBuilder:
     """
     kb = InlineKeyboardBuilder()
     kb.button(text="⬅️ Назад", callback_data="main_menu")
+    return kb
+
+def account_kb() -> InlineKeyboardBuilder:
+    """
+    Меню аккаунта
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💰 Баланс", callback_data="account_balance")
+    kb.button(text="⬅️ Назад", callback_data="main_menu")
+    kb.adjust(1)
+    return kb
+
+def account_balance_kb() -> InlineKeyboardBuilder:
+    """
+    Меню баланса аккаунта
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💰 Futures", callback_data="account_balance_futures")
+    kb.button(text="⬅️ Назад", callback_data="account")
+    kb.adjust(1)
     return kb
 
 def result_position_info_kb() -> InlineKeyboardBuilder:

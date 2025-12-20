@@ -348,3 +348,25 @@ class TrailingStop:
             'position_side': self.position_side
         }
 
+    def set_initial_stop(self, current_price: float) -> bool:
+        """
+        Устанавливает начальный стоп-лосс сразу после активации,
+        если прибыль уже превышает целевой процент
+        
+        Args:
+            current_price: Текущая рыночная цена
+        
+        Returns:
+            bool: True если стоп-лосс был установлен, False в противном случае
+        """
+        if not self.is_active:
+            logger.warning("⚠️ Трейлинг стоп не активирован! Сначала вызовите activate()")
+            return False
+        
+        if self.last_stop_price is not None:
+            logger.debug("ℹ️ Стоп-лосс уже установлен, используйте update() для обновления")
+            return False
+        
+        # Устанавливаем начальный стоп через _update_stop_loss
+        return self._update_stop_loss(current_price)
+
