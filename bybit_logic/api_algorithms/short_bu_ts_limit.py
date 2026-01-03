@@ -119,31 +119,32 @@ def price_trigger_callback():
     # ============================================
     # АКТИВАЦИЯ ТРЕЙЛИНГ СТОПА (ТОЛЬКО ЕСЛИ БУ УСПЕШНО УСТАНОВЛЕН)
     # ============================================
-    if bu_success:
-        if trailing_stop is not None:
-            trailing_stop.activate(current_price)  # Активируем трейлинг стоп на текущей цене
-            logger.info(f"🟢 Трейлинг стоп активирован на цене {current_price:.8g}")
+    if trailing_stop is not None:
+        trailing_stop.activate(current_price)  # Активируем трейлинг стоп на текущей цене
+        
+        if bu_success:
+            logger.info(f"🟢 Трейлинг стоп активирован на цене {current_price:.8g} (БУ установлен)")
             print(f"🟢 Трейлинг стоп активирован!")
-            
-            # КРИТИЧНО: Если прибыль уже больше TRIGGER_PERCENTAGE, 
-            # сразу устанавливаем первый стоп трейлинг стопа на текущей прибыли
-            # Это нужно, чтобы зафиксировать прибыль сразу, а не ждать дальнейшего роста
-            if price_change_percent >= TRIGGER_PERCENTAGE_INITIAL_TS:
-                logger.info(f"💰 Прибыль уже {price_change_percent:.2f}% (больше целевого {TRIGGER_PERCENTAGE}%)")
-                logger.info(f"📝 Сразу устанавливаю первый стоп трейлинг стопа на текущей цене...")
-                if trailing_stop.set_initial_stop(current_price):
-                    logger.info(f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%")
-                    print(f"✅ Первый стоп трейлинг стопа установлен!")
-                else:
-                    logger.warning(f"⚠️ Не удалось установить начальный стоп, он установится при следующем росте")
-            else:
-                logger.info(f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%")
         else:
-            logger.error("❌ Объект трейлинг стопа не создан!")
-            print("❌ Ошибка: трейлинг стоп не создан!")
+            logger.warning(f"🟡 Трейлинг стоп активирован на цене {current_price:.8g} (БУ НЕ установлен, защита через трейлинг стоп)")
+            print(f"🟡 Трейлинг стоп активирован! (БУ не установлен)")
+        
+        # КРИТИЧНО: Если прибыль уже больше TRIGGER_PERCENTAGE_INITIAL_TS, 
+        # сразу устанавливаем первый стоп трейлинг стопа на текущей прибыли
+        # Это нужно, чтобы зафиксировать прибыль сразу, а не ждать дальнейшего роста
+        if price_change_percent >= TRIGGER_PERCENTAGE_INITIAL_TS:
+            logger.info(f"💰 Прибыль уже {price_change_percent:.2f}% (больше целевого {TRIGGER_PERCENTAGE}%)")
+            logger.info(f"📝 Сразу устанавливаю первый стоп трейлинг стопа на текущей цене...")
+            if trailing_stop.set_initial_stop(current_price):
+                logger.info(f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%")
+                print(f"✅ Первый стоп трейлинг стопа установлен!")
+            else:
+                logger.warning(f"⚠️ Не удалось установить начальный стоп, он установится при следующем росте")
+        else:
+            logger.info(f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%")
     else:
-        logger.warning("⚠️ Трейлинг стоп НЕ активирован, так как БУ не был установлен!")
-        print("⚠️ Трейлинг стоп НЕ активирован, так как БУ не был установлен!")
+        logger.error("❌ Объект трейлинг стопа не создан!")
+        print("❌ Ошибка: трейлинг стоп не создан!")
     
     print("=" * 50)
 
