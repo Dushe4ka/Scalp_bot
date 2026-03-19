@@ -1,108 +1,137 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database import is_subscriber
+from bot.languages._lang_func import get_config_lang
+from config import URL_TGCHANNEL, URL_TECH_SUPPORT
 
-def main_menu_kb(user_id: int) -> InlineKeyboardBuilder:
+def start_menu_kb(user_id: int) -> InlineKeyboardBuilder:
     """
-    Главное меню кнопок
+    Стартовое меню кнопок - выбор языка у пользователя
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔔 Подписка", callback_data="subscription")
-    kb.button(text="🖥 Сервер", callback_data="server")
-    kb.button(text="📈 Трейдинг", callback_data="trading")
-    kb.button(text="👤 Аккаунт", callback_data="account")
+    kb.button(text="Русский", callback_data="russian_lang")
+    kb.button(text="English", callback_data="english_lang")
     kb.adjust(1)
     return kb
 
-def subscription_kb(user_id: int) -> InlineKeyboardBuilder:
+def russia_start_kb(user_id: int) -> InlineKeyboardBuilder:
     """
-    Меню подписки
+    Русское меню кнопок после выбора языка (start)
     """
     kb = InlineKeyboardBuilder()
-    if is_subscriber(user_id):
-        kb.button(text="❌ Отписаться", callback_data="unsubscribe")
-    else:
-        kb.button(text="✅ Подписаться", callback_data="subscribe")
-    kb.button(text="⬅️ Назад", callback_data="main_menu")
+    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
+    kb.button(text="Личный кабинет", callback_data="profile_menu")
+    kb.button(text="Приобрести подписку", callback_data="subscription_buy")
+    kb.button(text="Назад", callback_data="start_menu")
     kb.adjust(1)
     return kb
 
-def server_kb() -> InlineKeyboardBuilder:
+def english_start_kb(user_id: int) -> InlineKeyboardBuilder:
     """
-    Меню сервера
+    Английское меню кнопок после выбора языка (start)
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔍 Проверка работоспособности", callback_data="check_health")
-    kb.button(text="⬅️ Назад", callback_data="main_menu")
+    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
+    kb.button(text="Profile", callback_data="profile_menu")
+    kb.button(text="Buy subscription", callback_data="subscription_buy")
+    kb.button(text="Back", callback_data="start_menu")
     kb.adjust(1)
     return kb
 
-def trading_kb() -> InlineKeyboardBuilder:
+async def greeting_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Меню трейдинга
+    Меню кнопок после выбора языка (greeting)
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="🤖 Алгоритмы", callback_data="algorithms")
-    kb.button(text="🛑 Остановка трейдинга", callback_data="stop_trading")
-    kb.button(text="💰 Информация о позиции", callback_data="result_position_info")
-    kb.button(text="⬅️ Назад", callback_data="main_menu")
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["subscription_buy"], callback_data="subscription_buy")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
     kb.adjust(1)
     return kb
 
-def algorithms_kb() -> InlineKeyboardBuilder:
+async def subscription_buy_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Меню алгоритмов
+    Меню кнопок оплаты подписки
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="Short 3 limit", callback_data="short_3_limit")
-    kb.button(text="⬅️ Назад", callback_data="trading")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["paid"], callback_data="paid")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["question"], callback_data="question")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
     kb.adjust(1)
     return kb
 
-def stop_trading_kb() -> InlineKeyboardBuilder:
+async def question_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Меню остановки трейдинга
+    Меню кнопок 'Что дальше?'
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="По названию монеты", callback_data="stop_by_symbol")
-    kb.button(text="Вся торговля", callback_data="stop_trading_all")
-    kb.button(text="⬅️ Назад", callback_data="trading")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscription_buy")
     kb.adjust(1)
     return kb
 
-def back_to_main_kb() -> InlineKeyboardBuilder:
+async def input_payment_id_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Кнопка назад в главное меню
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Назад", callback_data="main_menu")
-    return kb
-
-def account_kb() -> InlineKeyboardBuilder:
-    """
-    Меню аккаунта
+    Меню кнопок ввода ID платежа
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="💰 Баланс", callback_data="account_balance")
-    kb.button(text="⬅️ Назад", callback_data="main_menu")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["input_payment_id"], callback_data="input_payment_id")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscription_buy")
     kb.adjust(1)
     return kb
 
-def account_balance_kb() -> InlineKeyboardBuilder:
+async def input_payment_id_back_kb(lang: str) -> InlineKeyboardBuilder:
     """
-    Меню баланса аккаунта
+    Кнопка "Назад" в ввод ID платежа
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="💰 Futures", callback_data="account_balance_futures")
-    kb.button(text="⬅️ Назад", callback_data="account")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="paid")
     kb.adjust(1)
     return kb
 
-def result_position_info_kb() -> InlineKeyboardBuilder:
+async def confirm_payment_kb(lang: str) -> InlineKeyboardBuilder:
     """
-    Кнопка информации о позиции
+    Кнопки "Да ✓" / "Нет ✗" в подтверждение платежа
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="По названию монеты", callback_data="result_position_info_by_symbol")
-    kb.button(text="⬅️ Назад", callback_data="trading")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["confirm_payment"], callback_data="confirm_payment")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["reject_payment"], callback_data="input_payment_id")
+    kb.adjust(1)
+    return kb
+
+async def confirm_payment_success_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки перехода в профиль после оплаты подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+async def profile_menu_kb_without_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в профиле без подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["subscription_buy"], callback_data="subscription_buy")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+async def profile_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в профиле с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+async def profile_menu_wait_sub_confirmation_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в профиле ожидания подтверждения подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
     kb.adjust(1)
     return kb

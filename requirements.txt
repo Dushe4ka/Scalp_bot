@@ -4,3 +4,4 @@ aiogram
 fastapi
 celery
 redis
+motor

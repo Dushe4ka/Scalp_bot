@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from bot.config import SERVER_URL
-from bot.keyboards.inline_kb import account_kb, account_balance_kb
+from bot._old.keyboards.inline_kb import account_kb, account_balance_kb
 from bot.utils.helpers import safe_edit_message
 from logger_config import setup_logger
 import aiohttp

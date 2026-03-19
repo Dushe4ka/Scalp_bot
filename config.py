@@ -15,3 +15,7 @@ NGROK_TOKEN=os.getenv("NGROK_TOKEN")
 
 # Даннные для Telegram бота
 TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
+URL_TGCHANNEL=os.getenv("URL_TGCHANNEL")
+URL_PAYMENT=os.getenv("URL_PAYMENT")
+ADMIN_CHAT_ID=os.getenv("ADMIN_CHAT_ID")
+URL_TECH_SUPPORT=os.getenv("URL_TECH_SUPPORT")

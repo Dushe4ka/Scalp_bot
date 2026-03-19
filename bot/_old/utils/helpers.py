@@ -2,7 +2,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 from database import get_subscribers
 from bot.utils.misc import bot
-from config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID
+from bot.config import TELEGRAM_BOT_TOKEN
 from logger_config import setup_logger
 import requests
 import time
@@ -205,17 +205,3 @@ def send_to_subscribers_sync(text: str) -> dict:
         "errors": errors
     }
 
-async def send_info_payment_to_admin(payment_id: str, user_id: int, username: str) -> bool:
-    """
-    Отправка информации о платеже администратору
-    """
-    try:
-        text = f"Пользователь {username} ({user_id}) Оплатил подписку. ID платежа: {payment_id}"
-        await bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=text
-        )
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при отправке информации о платеже администратору: {e}")
-        return False
