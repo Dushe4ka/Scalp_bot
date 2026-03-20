@@ -305,6 +305,12 @@ class UsersRepository:
             logger.error("Ошибка при обновлении total_amount tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении total_amount: {e}") from e
 
+    async def get_total_amount(self, tg_id: int) -> str:
+        user = await self.get_user(tg_id)
+        if user is not None:
+            return user["subscription_data"]["total_amount"]
+        return "0"
+
     # --- bybit_data ---
 
     async def update_sum_for_trades(self, tg_id: int, sum_for_trades: str) -> None:
@@ -473,6 +479,33 @@ class UsersRepository:
         except pymongo_errors.PyMongoError as e:
             logger.error("Ошибка при обновлении sum_negative_trades tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении sum_negative_trades: {e}") from e
+
+    # --- Готовые функции ---
+
+    async def user_buy_subscription_30_days(self, tg_id: int) -> None:
+        
+        # Дата в формате %d.%m.%Y %H:%M:%S
+        data_now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        data_end = (datetime.now() + datetime.timedelta(days=30)).strftime("%d.%m.%Y %H:%M:%S")
+
+        total_amount = await self.get_total_amount(tg_id)
+        total_amount = float(total_amount)
+
+        await self.update_wait_sub_confirmation(tg_id, True)
+        await self.update_subscription_type(tg_id, "30 дней")
+        await self.update_payment_date(tg_id, data_now)
+        await self.update_end_subscription_date(tg_id, data_end)
+        await self.update_current_amount(tg_id, "99")
+        await self.update_total_amount(tg_id, str(total_amount + 99))
+
+        logger.info(f"Данные пользователя {tg_id} обновлены (покупка подписки 30 дней)")
+
+    async def admin_check_subscription(self, tg_id: int) -> None:
+
+        await self.update_wait_sub_confirmation(tg_id, False)
+        await self.update_subscription(tg_id, True)
+
+        logger.info(f"Данные пользователя {tg_id} обновлены (подтверждение подписки)")
 
     async def close(self) -> None:
         """Закрыть соединение с MongoDB."""

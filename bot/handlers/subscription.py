@@ -110,7 +110,7 @@ async def confirm_payment(callback: CallbackQuery, state: FSMContext, lang: str)
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
 
-    await db.update_wait_sub_confirmation(user_id, True)
+    await db.user_buy_subscription_30_days(user_id)
     await state.clear()
     
     text_config = await get_config_lang(lang)
