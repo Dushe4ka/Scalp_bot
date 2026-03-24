@@ -3,7 +3,7 @@
 Структура документа и методы изменения каждого поля с обработкой ошибок.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
@@ -43,14 +43,14 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
         "subscription_data": {
             "subscription": False,
             "wait_sub_confirmation": False,
-            "current_amount": "",
+            "current_amount": 0,
             "subscription_type": "",
             "payment_date": None,
             "end_subscription_date": None,
-            "total_amount": "",
+            "total_amount": 0,
         },
         "bybit_data": {
-            "sum_for_trades": "",
+            "sum_for_trades": 0,
             "api_key": "",
             "api_secret": "",
             "create_date": None,
@@ -101,6 +101,18 @@ class UsersRepository:
             return doc
         except pymongo_errors.PyMongoError as e:
             logger.error("Ошибка при получении пользователя tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении пользователя: {e}") from e
+
+    async def get_user_by_username_or_id(self, username_or_id: str | int) -> dict[str, Any] | None:
+        """Получить пользователя по username или id."""
+        logger.info("Получение пользователя по username или tg_id -- %s", username_or_id)
+        try:
+            doc = await self._collection.find_one({"$or": [{"username": username_or_id}, {"tg_id": username_or_id}]})
+            if doc is None:
+                logger.info("Пользователь %s не найден", username_or_id)
+            return doc
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка при получении пользователя username или id=%s: %s", username_or_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при получении пользователя: {e}") from e
 
     async def create_user(self, tg_id: int, name: str, language: str = None) -> dict[str, Any]:
@@ -230,15 +242,15 @@ class UsersRepository:
             logger.error("Ошибка при обновлении wait_sub_confirmation tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении wait_sub_confirmation: {e}") from e
 
-    async def update_current_amount(self, tg_id: int, current_amount: str) -> None:
-        if not isinstance(current_amount, str):
+    async def update_current_amount(self, tg_id: int, current_amount: int) -> None:
+        if not isinstance(current_amount, int):
             logger.warning("update_current_amount: невалидное значение для tg_id=%s", tg_id)
-            raise ValidationError("current_amount должен быть str")
+            raise ValidationError("current_amount должен быть int")
         logger.info("Обновление current_amount для tg_id=%s", tg_id)
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"subscription_data.current_amount": current_amount}},
+                {"$set": {"subscription_data.current_amount": int(current_amount)}},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
@@ -290,26 +302,31 @@ class UsersRepository:
             logger.error("Ошибка при обновлении end_subscription_date tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении end_subscription_date: {e}") from e
 
-    async def update_total_amount(self, tg_id: int, total_amount: str) -> None:
-        if not isinstance(total_amount, str):
+    async def update_total_amount(self, tg_id: int, total_amount: int) -> None:
+        if not isinstance(total_amount, int):
             logger.warning("update_total_amount: невалидное значение для tg_id=%s", tg_id)
-            raise ValidationError("total_amount должен быть str")
+            raise ValidationError("total_amount должен быть int")
         logger.info("Обновление total_amount для tg_id=%s", tg_id)
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"subscription_data.total_amount": total_amount}},
+                {"$set": {"subscription_data.total_amount": int(total_amount)}},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
             logger.error("Ошибка при обновлении total_amount tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении total_amount: {e}") from e
 
-    async def get_total_amount(self, tg_id: int) -> str:
+    async def get_total_amount(self, tg_id: int) -> int:
         user = await self.get_user(tg_id)
         if user is not None:
-            return user["subscription_data"]["total_amount"]
-        return "0"
+            raw_total = user["subscription_data"]["total_amount"]
+            try:
+                return int(raw_total or 0)
+            except (TypeError, ValueError):
+                logger.warning("get_total_amount: невалидное значение total_amount для tg_id=%s, используем 0", tg_id)
+                return 0
+        return 0
 
     # --- bybit_data ---
 
@@ -484,19 +501,18 @@ class UsersRepository:
 
     async def user_buy_subscription_30_days(self, tg_id: int) -> None:
         
-        # Дата в формате %d.%m.%Y %H:%M:%S
-        data_now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-        data_end = (datetime.now() + datetime.timedelta(days=30)).strftime("%d.%m.%Y %H:%M:%S")
+        # Храним даты как datetime, чтобы пройти валидацию update_*_date
+        data_now = datetime.now()
+        data_end = data_now + timedelta(days=30)
 
         total_amount = await self.get_total_amount(tg_id)
-        total_amount = float(total_amount)
 
         await self.update_wait_sub_confirmation(tg_id, True)
         await self.update_subscription_type(tg_id, "30 дней")
         await self.update_payment_date(tg_id, data_now)
         await self.update_end_subscription_date(tg_id, data_end)
-        await self.update_current_amount(tg_id, "99")
-        await self.update_total_amount(tg_id, str(total_amount + 99))
+        await self.update_current_amount(tg_id, 99)
+        await self.update_total_amount(tg_id, total_amount + 99)
 
         logger.info(f"Данные пользователя {tg_id} обновлены (покупка подписки 30 дней)")
 

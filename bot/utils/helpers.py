@@ -1,4 +1,4 @@
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 from database import get_subscribers
 from bot.utils.misc import bot
@@ -10,7 +10,7 @@ import time
 logger = setup_logger(__name__)
 
 async def safe_edit_message(
-    callback: CallbackQuery,
+    callback: CallbackQuery | Message,
     text: str,
     reply_markup: InlineKeyboardMarkup | None = None
 ) -> bool:
@@ -28,8 +28,15 @@ async def safe_edit_message(
     Returns:
         bool: True если сообщение успешно отредактировано, False если произошла ошибка "message is not modified"
     """
+    if isinstance(callback, CallbackQuery):
+        target_message = callback.message
+        user_id = callback.from_user.id
+    else:
+        target_message = callback
+        user_id = callback.from_user.id
+
     try:
-        await callback.message.edit_text(
+        await target_message.edit_text(
             text=text,
             reply_markup=reply_markup
         )
@@ -38,13 +45,13 @@ async def safe_edit_message(
         # Игнорируем ошибку "message is not modified"
         error_message = str(e).lower()
         if "message is not modified" in error_message:
-            logger.debug(f"Сообщение не изменено (user_id: {callback.from_user.id}, message_id: {callback.message.message_id})")
+            logger.debug(f"Сообщение не изменено (user_id: {user_id}, message_id: {target_message.message_id})")
             return False
         # Для других ошибок логируем и пробрасываем дальше
-        logger.error(f"Ошибка редактирования сообщения: {e} (user_id: {callback.from_user.id})")
+        logger.error(f"Ошибка редактирования сообщения: {e} (user_id: {user_id})")
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при редактировании сообщения: {e} (user_id: {callback.from_user.id})")
+        logger.error(f"Неожиданная ошибка при редактировании сообщения: {e} (user_id: {user_id})")
         raise
 
 async def send_to_subscribers_async(text: str) -> dict:

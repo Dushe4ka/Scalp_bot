@@ -19,3 +19,11 @@ URL_TGCHANNEL=os.getenv("URL_TGCHANNEL")
 URL_PAYMENT=os.getenv("URL_PAYMENT")
 ADMIN_CHAT_ID=os.getenv("ADMIN_CHAT_ID")
 URL_TECH_SUPPORT=os.getenv("URL_TECH_SUPPORT")
+
+# Поддержка нескольких админов: ADMIN_IDS=1,2,3
+ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = {
+    int(x.strip())
+    for x in ADMIN_IDS_RAW.split(",")
+    if x.strip().isdigit()
+}
