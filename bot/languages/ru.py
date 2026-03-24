@@ -37,7 +37,8 @@ RU_CONFIGURATION = {
     "admin_menu": "Админ-панель 👨‍💻\n\nВыберите действие:",
     "users_list": "Пользователи👥\n\nВыберите тип пользователей с которыми будете работать",
     "wait_confirm": "Ожидающие подтверждения🕒\n\nВыберите метод поиска пользователей",
-    "search_by_username_id": "Ввести username или ID пользователя",
+    "search_by_username_id": "Введите username или ID пользователя",
+    "user_not_search": "Пользователь не найден 🚫"
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Пользователи",
@@ -47,6 +48,8 @@ RU_CONFIGURATION = {
     "wait_confirm_list": "Список пользователей",
     "subscribers_list": "Список подписчиков",
     "search_by_username_id": "Поиск по username & ID",
+    "proccess_search_wair_confirm": "Продолжить поиск",
+    "back_menu_wait_confirm": "Вернуться в меню",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Назад",

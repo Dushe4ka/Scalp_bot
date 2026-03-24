@@ -182,3 +182,22 @@ async def wait_confirm_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="users_list")
     kb.adjust(1)
     return kb
+
+async def search_wait_confirm_user_kb(user_id, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в поиске пользователей, ожидающих подтверждение
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
+
+async def proccess_search_wait_confirm_user_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в поиске пользователей, ожидающих подтверждение
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
