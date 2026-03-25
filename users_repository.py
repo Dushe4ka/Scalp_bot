@@ -693,6 +693,7 @@ class UsersRepository:
         """Админ продлевает подписку пользователю, по типу подписки"""
         user_subscription_type = await self.get_subscription_type(tg_id)
         date_end_subscription = await self.get_end_subscription_date(tg_id)
+        await self.update_wait_sub_confirmation(tg_id, False)
         await self.prolong_end_subscription_date(tg_id, date_end_subscription, user_subscription_type)
 
         logger.info(f"Админ продлил подписку для пользователя {tg_id}")

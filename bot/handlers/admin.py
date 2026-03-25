@@ -186,30 +186,45 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
     username = callback.from_user.username or ""
 
     data = await state.get_data()
+
     tg_id = data.get("tg_id")
     if tg_id is None:
         await callback.answer("Сначала найдите пользователя.", show_alert=True)
         return
 
-    try:
-        await db.admin_check_subscription(int(tg_id))
-    except (ValidationError, UsersRepositoryError) as e:
-        await callback.answer(f"Не удалось подтвердить: {e}", show_alert=True)
+    user_info_by_username_id = await db.get_user_by_username_or_id(tg_id)
+    subscription_data = user_info_by_username_id.get("subscription_data")
+    wait_confirm = subscription_data.get("wait_sub_confirmation")
+
+    if not wait_confirm:
+        text_config = await get_config_lang(lang)
+        user_not_wait_confirm = text_config["admin_text"]["user_not_wait_confirm"]
+        await safe_edit_message(
+            callback,
+            text=user_not_wait_confirm,
+            reply_markup=(await search_wait_confirm_user_kb(user_id, lang)).as_markup(),
+        )
         return
+    else:
+        try:
+            await db.admin_check_subscription(int(tg_id))
+        except (ValidationError, UsersRepositoryError) as e:
+            await callback.answer(f"Не удалось подтвердить: {e}", show_alert=True)
+            return
 
-    user = await db.get_user(int(tg_id))
-    if user is None:
-        await callback.answer("Пользователь не найден в БД.", show_alert=True)
-        return
+        user = await db.get_user(int(tg_id))
+        if user is None:
+            await callback.answer("Пользователь не найден в БД.", show_alert=True)
+            return
 
-    text_config = await get_config_lang(lang)
+        text_config = await get_config_lang(lang)
 
-    await safe_edit_message(
-        callback,
-        _format_admin_user_text_by_template(user, text_config),
-        reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
-    )
-    logger.info(f"Админ {user_id} ({username}) подтвердил подписку пользователю {tg_id}")
+        await safe_edit_message(
+            callback,
+            _format_admin_user_text_by_template(user, text_config),
+            reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
+        )
+        logger.info(f"Админ {user_id} ({username}) подтвердил подписку пользователю {tg_id}")
 
 @router.callback_query(F.data == "admin_prolong_subscription")
 async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
@@ -225,25 +240,39 @@ async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang:
         await callback.answer("Сначала найдите пользователя.", show_alert=True)
         return
 
-    try:
-        await db.admin_prolong_subscription(int(tg_id))
-    except (ValidationError, UsersRepositoryError) as e:
-        await callback.answer(f"Не удалось продлить: {e}", show_alert=True)
+    user_info_by_username_id = await db.get_user_by_username_or_id(tg_id)
+    subscription_data = user_info_by_username_id.get("subscription_data")
+    wait_confirm = subscription_data.get("wait_sub_confirmation")
+
+    if not wait_confirm:
+        text_config = await get_config_lang(lang)
+        user_not_wait_confirm = text_config["admin_text"]["user_not_wait_confirm"]
+        await safe_edit_message(
+            callback,
+            text=user_not_wait_confirm,
+            reply_markup=(await search_wait_confirm_user_kb(user_id, lang)).as_markup(),
+        )
         return
+    else:
+        try:
+            await db.admin_prolong_subscription(int(tg_id))
+        except (ValidationError, UsersRepositoryError) as e:
+            await callback.answer(f"Не удалось продлить: {e}", show_alert=True)
+            return
 
-    user = await db.get_user(int(tg_id))
-    if user is None:
-        await callback.answer("Пользователь не найден в БД.", show_alert=True)
-        return
+        user = await db.get_user(int(tg_id))
+        if user is None:
+            await callback.answer("Пользователь не найден в БД.", show_alert=True)
+            return
 
-    text_config = await get_config_lang(lang)
+        text_config = await get_config_lang(lang)
 
-    await safe_edit_message(
-        callback,
-        _format_admin_user_text_by_template(user, text_config),
-        reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
-    )
-    logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {tg_id}")
+        await safe_edit_message(
+            callback,
+            _format_admin_user_text_by_template(user, text_config),
+            reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
+        )
+        logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {tg_id}")
 
 @router.callback_query(F.data == "cancel_prolong_subscription")
 async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
