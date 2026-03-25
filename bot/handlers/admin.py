@@ -211,7 +211,7 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
     )
     logger.info(f"Админ {user_id} ({username}) подтвердил подписку пользователю {tg_id}")
 
-@router.callback_query(F.data == "prolong_subscription")
+@router.callback_query(F.data == "admin_prolong_subscription")
 async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
     """Админ продлевает подписку пользователю и окно обновляется свежими данными."""
     await callback.answer()

@@ -60,7 +60,7 @@ async def cmd_main_menu(message: Message, state: FSMContext, lang):
     elif not wait_confirm and is_subscriber:
         reply_markup = (await greeting_kb_with_subscription(user_id, lang)).as_markup()
     else:
-        reply_markup = greeting_kb(user_id, lang).as_markup()
+        reply_markup = (await greeting_kb(user_id, lang)).as_markup()
 
     await message.answer(
         text,
@@ -164,7 +164,7 @@ async def greeting(callback: CallbackQuery, lang: str):
     elif not wait_confirm and is_subscriber:
         reply_markup = (await greeting_kb_with_subscription(user_id, lang)).as_markup()
     else:
-        reply_markup = greeting_kb(user_id, lang).as_markup()
+        reply_markup = (await greeting_kb(user_id, lang)).as_markup()
 
     await safe_edit_message(
         callback,

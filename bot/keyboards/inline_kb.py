@@ -136,12 +136,32 @@ async def subscription_buy_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.adjust(1)
     return kb
 
+async def prolong_subscription_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Меню кнопок продления подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["paid"], callback_data="prolong_paid")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["question"], callback_data="prolong_question")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
 async def question_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
     Меню кнопок 'Что дальше?'
     """
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscription_buy")
+    kb.adjust(1)
+    return kb
+
+async def prolong_question_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Меню кнопок 'Что дальше?' продления подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="prolong_subscription")
     kb.adjust(1)
     return kb
 
@@ -154,6 +174,16 @@ async def input_payment_id_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscription_buy")
     kb.adjust(1)
     return kb
+    
+async def prolong_input_payment_id_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Меню кнопок ввода ID платежа продления подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["input_payment_id"], callback_data="prolong_input_payment_id")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="prolong_subscription")
+    kb.adjust(1)
+    return kb
 
 async def input_payment_id_back_kb(lang: str) -> InlineKeyboardBuilder:
     """
@@ -164,6 +194,15 @@ async def input_payment_id_back_kb(lang: str) -> InlineKeyboardBuilder:
     kb.adjust(1)
     return kb
 
+async def prolong_input_payment_id_back_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопка "Назад" в ввод ID платежа продления подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="prolong_paid")
+    kb.adjust(1)
+    return kb
+
 async def confirm_payment_kb(lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки "Да ✓" / "Нет ✗" в подтверждение платежа
@@ -171,6 +210,16 @@ async def confirm_payment_kb(lang: str) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["subscription_btn"]["confirm_payment"], callback_data="confirm_payment")
     kb.button(text=(await get_config_lang(lang))["subscription_btn"]["reject_payment"], callback_data="input_payment_id")
+    kb.adjust(1)
+    return kb
+
+async def prolong_confirm_payment_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки "Да ✓" / "Нет ✗" в подтверждение платежа продления подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["confirm_payment"], callback_data="prolong_confirm_payment")
+    kb.button(text=(await get_config_lang(lang))["subscription_btn"]["reject_payment"], callback_data="prolong_input_payment_id")
     kb.adjust(1)
     return kb
 
@@ -279,7 +328,7 @@ async def positive_proccess_search_wait_confirm_user_kb_with_subscription(lang: 
     Кнопки в поиске пользователей, ожидающих подтверждение с подпиской
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["prolong_subscription"], callback_data="prolong_subscription")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["prolong_subscription"], callback_data="admin_prolong_subscription")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")

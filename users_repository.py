@@ -48,6 +48,9 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
             "payment_date": None,
             "end_subscription_date": None,
             "total_amount": 0,
+            "previous_payment_date": None,
+            "previous_subscription_type": "",
+            "previous_end_subscription_date": None,
         },
         "bybit_data": {
             "sum_for_trades": 0,
@@ -242,6 +245,15 @@ class UsersRepository:
         logger.info("Пользователь tg_id=%s не найден", tg_id)
         raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
 
+    async def get_end_subscription_date(self, tg_id: int) -> datetime:
+        """Получить дату окончания подписки для пользователя"""
+        logger.info("Получение даты окончания подписки для пользователя tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is not None:
+            return user["subscription_data"]["end_subscription_date"]
+        logger.info("Пользователь tg_id=%s не найден", tg_id)
+        raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+
     async def update_subscription(self, tg_id: int, subscription: bool) -> None:
         if not isinstance(subscription, bool):
             logger.warning("update_subscription: невалидное значение для tg_id=%s", tg_id)
@@ -332,6 +344,20 @@ class UsersRepository:
             logger.error("Ошибка при обновлении end_subscription_date tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении end_subscription_date: {e}") from e
 
+    async def prolong_end_subscription_date(self, tg_id: int, end_subscription_date: datetime | None, subscription_type: str) -> None:
+        if subscription_type == "1 мес":
+            end_subscription_date = end_subscription_date + timedelta(days=30)
+        elif subscription_type == "3 мес":
+            end_subscription_date = end_subscription_date + timedelta(days=90)
+        elif subscription_type == "6 мес":
+            end_subscription_date = end_subscription_date + timedelta(days=180)
+        elif subscription_type == "1 год":
+            end_subscription_date = end_subscription_date + timedelta(days=365)
+        else:
+            logger.warning("prolong_end_subscription_date: неизвестный тип подписки для tg_id=%s", tg_id)
+            raise ValidationError("Неизвестный тип подписки")
+        await self.update_end_subscription_date(tg_id, end_subscription_date)
+
     async def update_end_subscription_date_by_type(self, tg_id: int, subscription_type: str) -> None:
         if not isinstance(subscription_type, str):
             logger.warning("update_end_subscription_date_by_type: невалидное значение для tg_id=%s", tg_id)
@@ -390,6 +416,53 @@ class UsersRepository:
                 return 0
         return 0
 
+    async def update_previous_data(self, tg_id: int) -> None:
+        """Обновление предыдущих данных для пользователя"""
+        logger.info("Обновление предыдущих данных для пользователя tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is not None:
+            previous_payment_date = user["subscription_data"]["payment_date"]
+            previous_subscription_type = user["subscription_data"]["subscription_type"]
+            previous_end_subscription_date = user["subscription_data"]["end_subscription_date"]
+        try:
+            r = await self._collection.update_one(
+                {"tg_id": tg_id},
+                {"$set": {"subscription_data.previous_payment_date": previous_payment_date, "subscription_data.previous_subscription_type": previous_subscription_type, "subscription_data.previous_end_subscription_date": previous_end_subscription_date}},
+            )
+            self._ensure_user_exists(r, tg_id)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка при обновлении предыдущих данных tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при обновлении предыдущих данных: {e}") from e
+    
+    async def cancel_previous_data(self, tg_id: int) -> None:
+        """
+        Возврат предыдущих данных на место нынешних у пользователя и очистка предыдущих данных
+        Проверка чтобы старые данные не были None, иначе не будет обновления
+        """
+        logger.info("Возврат предыдущих данных на место нынешних у пользователя tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is not None:
+            previous_payment_date = user["subscription_data"]["previous_payment_date"]
+            previous_subscription_type = user["subscription_data"]["previous_subscription_type"]
+            previous_end_subscription_date = user["subscription_data"]["previous_end_subscription_date"]
+            if previous_payment_date is not None and previous_subscription_type is not None and previous_end_subscription_date is not None:
+                await self.update_payment_date(tg_id, previous_payment_date)
+                await self.update_subscription_type(tg_id, previous_subscription_type)
+                await self.update_end_subscription_date(tg_id, previous_end_subscription_date)
+                logger.info("Предыдущие данные для пользователя tg_id=%s возвращены на место нынешних", tg_id)
+
+                try:
+                    r = await self._collection.update_one(
+                        {"tg_id": tg_id},
+                        {"$set": {"subscription_data.previous_payment_date": None, "subscription_data.previous_subscription_type": None, "subscription_data.previous_end_subscription_date": None}},
+                    )
+                    self._ensure_user_exists(r, tg_id)
+                except pymongo_errors.PyMongoError as e:
+                    logger.error("Ошибка при очистке предыдущих данных tg_id=%s: %s", tg_id, e, exc_info=True)
+                    raise UsersRepositoryError(f"Ошибка при очистке предыдущих данных: {e}") from e
+            else:
+                logger.info("Предыдущие данные для пользователя tg_id=%s не найдены, не будет обновления", tg_id)
+  
     # --- bybit_data ---
 
     async def update_sum_for_trades(self, tg_id: int, sum_for_trades: str) -> None:
@@ -578,6 +651,10 @@ class UsersRepository:
     # --- Готовые функции ---
 
     async def user_buy_subscription_30_days(self, tg_id: int) -> None:
+        """Покупка подписки 30 дней для пользователя или продление подписки на 30 дней"""
+        # Сохраняем текущие данные как прошлые и обновляем текущие
+        if await self.is_subscriber(tg_id):
+            await self.update_previous_data(tg_id)
         
         # Храним даты как datetime, чтобы пройти валидацию update_*_date
         data_now = datetime.now()
@@ -611,6 +688,22 @@ class UsersRepository:
         await self.update_total_amount(tg_id, 0)
 
         logger.info(f"Данные пользователя {tg_id} обновлены (Не подтверждена подписка)")
+
+    async def admin_prolong_subscription(self, tg_id: int) -> None:
+        """Админ продлевает подписку пользователю, по типу подписки"""
+        user_subscription_type = await self.get_subscription_type(tg_id)
+        date_end_subscription = await self.get_end_subscription_date(tg_id)
+        await self.prolong_end_subscription_date(tg_id, date_end_subscription, user_subscription_type)
+
+        logger.info(f"Админ продлил подписку для пользователя {tg_id}")
+
+    async def admin_cancel_prolong_subscription(self, tg_id: int) -> None:
+        """Админ отклоняет продление подписки пользователя"""
+        await self.cancel_previous_data(tg_id)
+        await self.update_wait_sub_confirmation(tg_id, False)
+
+        logger.info(f"Админ отклонил продление подписки {tg_id}")
+
 
     async def close(self) -> None:
         """Закрыть соединение с MongoDB."""
