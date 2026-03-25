@@ -28,6 +28,29 @@ def russia_start_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.adjust(1)
     return kb
 
+def russia_start_kb_wait_confirm_subscription(user_id: int) -> InlineKeyboardBuilder:
+    """
+    Русское меню кнопок после выбора языка (start) без подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
+    kb.button(text="Личный кабинет", callback_data="profile_menu")
+    kb.button(text="Назад", callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
+def russia_start_kb_with_subscription(user_id: int) -> InlineKeyboardBuilder:
+    """
+    Русское меню кнопок после выбора языка (start) с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
+    kb.button(text="Личный кабинет", callback_data="profile_menu")
+    kb.button(text="Продлить подписку", callback_data="prolong_subscription")
+    kb.button(text="Назад", callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
 def english_start_kb(user_id: int) -> InlineKeyboardBuilder:
     """
     Английское меню кнопок после выбора языка (start)
@@ -36,6 +59,29 @@ def english_start_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.button(text="Our TG channel", url=URL_TGCHANNEL)
     kb.button(text="Profile", callback_data="profile_menu")
     kb.button(text="Buy subscription", callback_data="subscription_buy")
+    kb.button(text="Back", callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
+def english_start_kb_wait_confirm_subscription(user_id: int) -> InlineKeyboardBuilder:
+    """
+    Английское меню кнопок после выбора языка (start) без подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
+    kb.button(text="Profile", callback_data="profile_menu")
+    kb.button(text="Back", callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
+def english_start_kb_with_subscription(user_id: int) -> InlineKeyboardBuilder:
+    """
+    Английское меню кнопок после выбора языка (start) с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
+    kb.button(text="Profile", callback_data="profile_menu")
+    kb.button(text="Prolong subscription", callback_data="prolong_subscription")
     kb.button(text="Back", callback_data="start_menu")
     kb.adjust(1)
     return kb
@@ -51,6 +97,30 @@ async def greeting_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
     kb.adjust(1)
     return kb
+
+async def greeting_kb_wait_confirm_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Меню кнопок после выбора языка (greeting) ожидания подтверждения подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
+async def greeting_kb_with_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Меню кнопок после выбора языка (greeting) с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
+    kb.button(text=(await get_config_lang(lang))["start_btn"]["prolong_subscription"], callback_data="prolong_subscription")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
+    kb.adjust(1)
+    return kb
+
 # -------------------------------------------------------------
 # Subscription keyboards
 # -------------------------------------------------------------
@@ -192,11 +262,25 @@ async def search_wait_confirm_user_kb(user_id, lang: str) -> InlineKeyboardBuild
     kb.adjust(1)
     return kb
 
-async def proccess_search_wait_confirm_user_kb(lang: str) -> InlineKeyboardBuilder:
+async def positive_proccess_search_wait_confirm_user_kb(lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске пользователей, ожидающих подтверждение
     """
     kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["confirm_subscription"], callback_data="confirm_subscription")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_subscription"], callback_data="cancel_subscription")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
+
+async def positive_proccess_search_wait_confirm_user_kb_with_subscription(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в поиске пользователей, ожидающих подтверждение с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["prolong_subscription"], callback_data="prolong_subscription")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
     kb.adjust(1)

@@ -8,6 +8,7 @@ RU_CONFIGURATION = {
     "url_tg": "Наш ТГ канал",
     "personal_account": "Личный кабинет",
     "subscription_buy": "Приобрести подписку",
+    "prolong_subscription": "Продлить подписку",
   }, # -------------------------------------------------------------
   "subscription_text": {
     "buy_info": f"Оплата 1 месяц = 99$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
@@ -16,6 +17,7 @@ RU_CONFIGURATION = {
     "input_payment_id": "Введите ID платежа в чат",
     "confirm_payment": "Все верно: {payment_id}",
     "confirm_payment_success": "Спасибо за оплату! Администрация в течении 24ч проверит ваш платеж и активирует вашу подписку.",
+    "prolong_subscription": f"Продление подписки🚀\n\nОплата 1 месяц = 99$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
   },
   "subscription_btn": {
     "paid": "Оплатил",
@@ -38,7 +40,9 @@ RU_CONFIGURATION = {
     "users_list": "Пользователи👥\n\nВыберите тип пользователей с которыми будете работать",
     "wait_confirm": "Ожидающие подтверждения🕒\n\nВыберите метод поиска пользователей",
     "search_by_username_id": "Введите username или ID пользователя",
-    "user_not_search": "Пользователь не найден 🚫"
+    "user_not_search": "Пользователь не найден 🚫",
+    "user_not_wait_confirm": "Пользователь не ожидает подтверждения 🚫",
+    "user_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}"
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Пользователи",
@@ -50,6 +54,10 @@ RU_CONFIGURATION = {
     "search_by_username_id": "Поиск по username & ID",
     "proccess_search_wair_confirm": "Продолжить поиск",
     "back_menu_wait_confirm": "Вернуться в меню",
+    "confirm_subscription": "Подтвердить подписку",
+    "cancel_subscription": "Отклонить запрос",
+    "prolong_subscription": "Продлить подписку",
+    "cancel_prolong_subscription": "Отклонить продление подписки",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Назад",

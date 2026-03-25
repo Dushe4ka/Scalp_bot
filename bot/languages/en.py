@@ -8,6 +8,7 @@ EN_CONFIGURATION = {
     "url_tg": "Our Telegram",
     "personal_account": "Personal account",
     "subscription_buy": "Buy subscription",
+    "prolong_subscription": "Prolong subscription",
   }, # -------------------------------------------------------------
   "subscription_text": {
     "buy_info": f"Payment for 1 month = 99$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",

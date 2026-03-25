@@ -123,3 +123,18 @@ async def confirm_payment(callback: CallbackQuery, state: FSMContext, lang: str)
     )
     logger.info(f"Пользователь {user_id} ({username}) подтвердил платеж и отправил ID платежа администратору")
     
+@router.callback_query(F.data == "prolong_subscription")
+async def prolong_subscription(callback: CallbackQuery, lang: str):
+    """Обработка нажатия на кнопку 'Продлить подписку'"""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    
+    text_config = await get_config_lang(lang)
+    text = text_config["subscription_text"]["prolong_subscription"]
+    
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await subscription_buy_kb(user_id, lang)).as_markup()
+    )
+    logger.info(f"Пользователь {user_id} ({username}) открыл меню продления подписки")

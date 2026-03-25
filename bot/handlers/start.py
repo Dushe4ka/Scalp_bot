@@ -2,7 +2,18 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from bot.keyboards.inline_kb import start_menu_kb, russia_start_kb, english_start_kb, greeting_kb
+from bot.keyboards.inline_kb import (
+    start_menu_kb, 
+    russia_start_kb, 
+    english_start_kb, 
+    greeting_kb,
+    russia_start_kb_wait_confirm_subscription,
+    russia_start_kb_with_subscription,
+    english_start_kb_wait_confirm_subscription,
+    english_start_kb_with_subscription,
+    greeting_kb_wait_confirm_subscription,
+    greeting_kb_with_subscription
+)
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message
 from users_repository import db
@@ -26,6 +37,34 @@ async def cmd_start(message: Message, state: FSMContext):
     await message.answer(
         text,
         reply_markup=start_menu_kb(user_id).as_markup()
+    )
+    logger.info(f"Пользователь {user_id} ({username}) открыл главное меню")
+
+# Обработчик команды /start
+@router.message(Command("main_menu"))
+async def cmd_main_menu(message: Message, state: FSMContext, lang):
+    """Обработка команд /main_menu"""
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+    
+    text_config = await get_config_lang(lang)
+    text = text_config["start_text"]["greeting"]
+
+    wait_confirm = await db.is_wait_sub_confirmation(user_id)
+    is_subscriber = await db.is_subscriber(user_id)
+
+    if wait_confirm and not is_subscriber:
+        reply_markup = (await greeting_kb_wait_confirm_subscription(user_id, lang)).as_markup()
+    elif wait_confirm and is_subscriber:
+        reply_markup = (await greeting_kb_wait_confirm_subscription(user_id, lang)).as_markup()
+    elif not wait_confirm and is_subscriber:
+        reply_markup = (await greeting_kb_with_subscription(user_id, lang)).as_markup()
+    else:
+        reply_markup = greeting_kb(user_id, lang).as_markup()
+
+    await message.answer(
+        text,
+        reply_markup=reply_markup
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл главное меню")
 
@@ -55,11 +94,22 @@ async def russia_start(callback: CallbackQuery):
     username = callback.from_user.username or ""
 
     text = " Здравствуйте! Меня зовут ZdormanBot 👋 \nЯ вам расскажу как приобрести подписку на наш сервис 📈 \n И почему нам стоит верить 😎"
+    wait_confirm = await db.is_wait_sub_confirmation(user_id)
+    is_subscriber = await db.is_subscriber(user_id)
+
+    if wait_confirm and not is_subscriber:
+        reply_markup = russia_start_kb_wait_confirm_subscription(user_id).as_markup()
+    elif wait_confirm and is_subscriber:
+        reply_markup = russia_start_kb_wait_confirm_subscription(user_id).as_markup()
+    elif not wait_confirm and is_subscriber:
+        reply_markup = russia_start_kb_with_subscription(user_id).as_markup()
+    else:
+        reply_markup = russia_start_kb(user_id).as_markup()
 
     await safe_edit_message(
         callback,
         text,
-        reply_markup=russia_start_kb(user_id).as_markup()
+        reply_markup=reply_markup
     )
     logger.info(f"Пользователь {user_id} ({username}) выбрал русский язык")
 
@@ -74,11 +124,22 @@ async def english_start(callback: CallbackQuery):
     username = callback.from_user.username or ""
 
     text = "Hello! My name is ZdormanBot 👋 \nI will tell you how to buy a subscription to our service 📈 \nAnd why we should be trusted 😎"
-    
+    wait_confirm = await db.is_wait_sub_confirmation(user_id)
+    is_subscriber = await db.is_subscriber(user_id)
+
+    if wait_confirm and not is_subscriber:
+        reply_markup = english_start_kb_wait_confirm_subscription(user_id).as_markup()
+    elif wait_confirm and is_subscriber:
+        reply_markup = english_start_kb_wait_confirm_subscription(user_id).as_markup()
+    elif not wait_confirm and is_subscriber:
+        reply_markup = english_start_kb_with_subscription(user_id).as_markup()
+    else:
+        reply_markup = english_start_kb(user_id).as_markup()
+
     await safe_edit_message(
         callback,
         text,
-        reply_markup=english_start_kb(user_id).as_markup()
+        reply_markup=reply_markup
     )
     logger.info(f"Пользователь {user_id} ({username}) выбрал английский язык")
 
@@ -93,9 +154,21 @@ async def greeting(callback: CallbackQuery, lang: str):
     text_config = await get_config_lang(lang)
     text = text_config["start_text"]["greeting"]
 
+    wait_confirm = await db.is_wait_sub_confirmation(user_id)
+    is_subscriber = await db.is_subscriber(user_id)
+
+    if wait_confirm and not is_subscriber:
+        reply_markup = (await greeting_kb_wait_confirm_subscription(user_id, lang)).as_markup()
+    elif wait_confirm and is_subscriber:
+        reply_markup = (await greeting_kb_wait_confirm_subscription(user_id, lang)).as_markup()
+    elif not wait_confirm and is_subscriber:
+        reply_markup = (await greeting_kb_with_subscription(user_id, lang)).as_markup()
+    else:
+        reply_markup = greeting_kb(user_id, lang).as_markup()
+
     await safe_edit_message(
         callback,
         text,
-        reply_markup=(await greeting_kb(user_id, lang)).as_markup()
+        reply_markup=reply_markup
     )
-    logger.info(f"Пользователь {user_id} ({username}) выбрал {lang} язык")
+    logger.info(f"Пользователь {user_id} ({username}) открыл главное меню")
