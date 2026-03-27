@@ -43,9 +43,17 @@ RU_CONFIGURATION = {
     "users_list": "Пользователи👥\n\nВыберите тип пользователей с которыми будете работать",
     "wait_confirm": "Ожидающие подтверждения🕒\n\nВыберите метод поиска пользователей",
     "search_by_username_id": "Введите username или ID пользователя",
+    "search_subscribers_by_username_id": "Введите username или ID подписчика",
     "user_not_search": "Пользователь не найден 🚫",
     "user_not_wait_confirm": "Пользователь не ожидает подтверждения 🚫",
-    "user_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}"
+    "user_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}",
+    "subscribers": "Подписчики👥\n\nВыберите метод поиска подписчиков",
+    "subscribers_main_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}",
+    "subscription_settings": "⚙️ Настройки подписки:\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nВсего выплачено за подписки: {total_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}",
+    "bybit_settings": "⚙️ Настройки клиента ByBit:\n\nAPI ключ: {api_key}\nAPI секрет: {api_secret}",
+    "statistics_info": "📊 Статистика подписчика: \n\nОбщее количество сделок: {total_trades}\nОбщий PnL: {total_pnl}\nКоличество + сделок: {positive_trades}\nЗаработанная суммка с + сделок: {sum_positive_trades}\n Количество - сделок: {negative_trades}\nПроигранная сумма с - сделок: {sum_negative_trades}",
+    "error_search_user": "Сначала найдите пользователя. 🚫",
+    "error_user_not_found": "Пользователь не найден в БД. 🚫",
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Пользователи",
@@ -61,6 +69,11 @@ RU_CONFIGURATION = {
     "cancel_subscription": "Отклонить запрос",
     "prolong_subscription": "Продлить подписку",
     "cancel_prolong_subscription": "Отклонить продление подписки",
+    "subscription_settings": "Настройки подписки ⚙️",
+    "edit_subscription_mode": "Изменить состояние подписки",
+    "edit_date_end_subs": "Изменить дату окончания подписки",
+    "bybit_settings": "Настройки Bybit ⚙️",
+    "statistics_info": "Статистика 📊",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Назад",

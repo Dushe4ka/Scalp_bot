@@ -40,13 +40,14 @@ async def cmd_start(message: Message, state: FSMContext):
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл главное меню")
 
-# Обработчик команды /start
+# Обработчик команды /main_menu
 @router.message(Command("main_menu"))
 async def cmd_main_menu(message: Message, state: FSMContext, lang):
     """Обработка команд /main_menu"""
     user_id = message.from_user.id
     username = message.from_user.username or ""
     
+    await state.clear()
     text_config = await get_config_lang(lang)
     text = text_config["start_text"]["greeting"]
 

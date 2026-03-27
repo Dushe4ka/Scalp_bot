@@ -302,12 +302,32 @@ async def wait_confirm_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.adjust(1)
     return kb
 
+async def subscribers_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в списке подписчиков
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscribers_list"], callback_data="subscribers_list")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["search_by_username_id"], callback_data="search_subscribers_by_username_id")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="users_list")
+    kb.adjust(1)
+    return kb
+
 async def search_wait_confirm_user_kb(user_id, lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске пользователей, ожидающих подтверждение
     """
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
+
+async def search_subscribers_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в поиске подписчиков
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers")
     kb.adjust(1)
     return kb
 
@@ -323,6 +343,19 @@ async def positive_proccess_search_wait_confirm_user_kb(lang: str) -> InlineKeyb
     kb.adjust(1)
     return kb
 
+async def positive_proccess_search_subscribers_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в поиске подписчиков
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["bybit_settings"], callback_data="bybit_settings")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["statistics_info"], callback_data="statistics_info")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_subscribers_by_username_id")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="subscribers")
+    kb.adjust(1)
+    return kb
+
 async def positive_proccess_search_wait_confirm_user_kb_with_subscription(lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске пользователей, ожидающих подтверждение с подпиской
@@ -332,5 +365,15 @@ async def positive_proccess_search_wait_confirm_user_kb_with_subscription(lang: 
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
+
+async def subscription_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в настройках подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb
