@@ -16,7 +16,12 @@ from bot.keyboards.inline_kb import (
     positive_proccess_search_wait_confirm_user_kb_with_subscription,
     subscribers_kb,
     positive_proccess_search_subscribers_kb,
-    search_subscribers_kb
+    search_subscribers_kb,
+    subscription_settings_kb,
+    bybit_settings_kb,
+    statistics_info_kb,
+    back_to_bybit_settings_kb,
+    back_to_subscription_settings_kb,
 )
 from bot.utils.helpers import safe_edit_message
 from bot.states.admin_states import AdminStates
@@ -83,12 +88,13 @@ def _format_admin_subscribers_text_by_template(user: dict[str, Any], text_config
         bybit_data = user.get("bybit_data") or {}
         api_key = "✅" if bybit_data.get("api_key") else "❌"
         api_secret = "✅" if bybit_data.get("api_secret") else "❌"
+        stop_trading = "Да" if bybit_data.get("stop_trading") is True else "Нет"
         return template.format(
             api_key=api_key,
             api_secret=api_secret,
             sum_for_trades=bybit_data.get("sum_for_trades", "—"),
-            open_trades=bybit_data.get("open_trades", "—"),
-            stop_trading=bybit_data.get("stop_trading", "—"),
+            # open_trades=bybit_data.get("open_trades", "—"),
+            stop_trading=stop_trading,
         )
 
     elif type_settings == "statistics_info":
@@ -99,9 +105,9 @@ def _format_admin_subscribers_text_by_template(user: dict[str, Any], text_config
         return template.format(
             total_trades=statistics_data.get("total_trades", "—"),
             total_pnl=statistics_data.get("total_pnl", "—"),
-            pozitive_trades=statistics_data.get("total_pozitive_trades", "—"),
-            sum_pozitive_trades=statistics_data.get("sum_pozitive_trades", "—"),
-            negative_trades=statistics_data.get("total_negative_trades", "—"),
+            positive_trades=statistics_data.get("positive_trades", "—"),
+            sum_positive_trades=statistics_data.get("sum_positive_trades", "—"),
+            negative_trades=statistics_data.get("negative_trades", "—"),
             sum_negative_trades=statistics_data.get("sum_negative_trades", "—"),
         )
 
@@ -240,19 +246,20 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
     """Админ подтверждает подписку пользователю и окно обновляется свежими данными."""
     await callback.answer()
     
-    user_id = callback.from_user.id
-    username = callback.from_user.username or ""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
     text_config = await get_config_lang(lang)
 
     data = await state.get_data()
 
-    tg_id = data.get("tg_id")
-    if tg_id is None:
+    username_id = data.get("tg_id")
+    if username_id is None:
         error_search_user = text_config["admin_text"]["error_search_user"]
         await callback.answer(error_search_user, show_alert=True)
         return
 
-    user_info_by_username_id = await db.get_user_by_username_or_id(tg_id)
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    tg_id = user_info_by_username_id.get("tg_id")
     subscription_data = user_info_by_username_id.get("subscription_data")
     wait_confirm = subscription_data.get("wait_sub_confirmation")
 
@@ -261,12 +268,12 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
         await safe_edit_message(
             callback,
             text=user_not_wait_confirm,
-            reply_markup=(await search_wait_confirm_user_kb(user_id, lang)).as_markup(),
+            reply_markup=(await search_wait_confirm_user_kb(admin_user_id, lang)).as_markup(),
         )
         return
     else:
         try:
-            await db.admin_check_subscription(int(tg_id))
+            await db.admin_check_subscription(int(username_id))
         except (ValidationError, UsersRepositoryError) as e:
             await callback.answer(f"Не удалось подтвердить: {e}", show_alert=True)
             return
@@ -282,7 +289,7 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
             _format_admin_user_text_by_template(user, text_config),
             reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
         )
-        logger.info(f"Админ {user_id} ({username}) подтвердил подписку пользователю {tg_id}")
+        logger.info(f"Админ {admin_user_id} ({admin_username}) подтвердил подписку пользователю {username_id}")
 
 @router.callback_query(F.data == "admin_prolong_subscription")
 async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
@@ -294,13 +301,14 @@ async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang:
     text_config = await get_config_lang(lang)
 
     data = await state.get_data()
-    tg_id = data.get("tg_id")
-    if tg_id is None:
+    username_id = data.get("tg_id")
+    if username_id is None:
         error_search_user = text_config["admin_text"]["error_search_user"]
         await callback.answer(error_search_user, show_alert=True)
         return
 
-    user_info_by_username_id = await db.get_user_by_username_or_id(tg_id)
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    tg_id = user_info_by_username_id.get("tg_id")
     subscription_data = user_info_by_username_id.get("subscription_data")
     wait_confirm = subscription_data.get("wait_sub_confirmation")
 
@@ -330,7 +338,7 @@ async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang:
             _format_admin_user_text_by_template(user, text_config),
             reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
         )
-        logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {tg_id}")
+        logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {username_id}")
 
 @router.callback_query(F.data == "cancel_prolong_subscription")
 async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
@@ -342,11 +350,14 @@ async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext
     text_config = await get_config_lang(lang)
 
     data = await state.get_data()
-    tg_id = data.get("tg_id")
-    if tg_id is None:
+    username_id = data.get("tg_id")
+    if username_id is None:
         error_search_user = text_config["admin_text"]["error_search_user"]
         await callback.answer(error_search_user, show_alert=True)
         return
+    
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    tg_id = user_info_by_username_id.get("tg_id")
 
     try:
         await db.admin_cancel_prolong_subscription(int(tg_id))
@@ -366,7 +377,7 @@ async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext
         reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
     )
 
-    logger.info(f"Админ {user_id} ({username}) отклонил продление подписки пользователю {tg_id}")
+    logger.info(f"Админ {user_id} ({username}) отклонил продление подписки пользователю {username_id}")
 
 @router.callback_query(F.data == "cancel_subscription")
 async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
@@ -378,12 +389,15 @@ async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: 
     text_config = await get_config_lang(lang)
 
     data = await state.get_data()
-    tg_id = data.get("tg_id")
-    if tg_id is None:
+    username_id = data.get("tg_id")
+    if username_id is None:
         error_search_user = text_config["admin_text"]["error_search_user"]
         await callback.answer(error_search_user, show_alert=True)
         return
-
+    
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    tg_id = user_info_by_username_id.get("tg_id")
+    
     try:
         await db.admin_cancel_subscription(int(tg_id))
     except (ValidationError, UsersRepositoryError) as e:
@@ -402,7 +416,7 @@ async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: 
         reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
     )
 
-    logger.info(f"Админ {user_id} ({username}) отклонил подписку пользователю {tg_id}")
+    logger.info(f"Админ {user_id} ({username}) отклонил подписку пользователю {username_id}")
 
 # -------------------------------------------------------------
 # Подписчики
@@ -444,14 +458,12 @@ async def search_subscribers_by_username_id(callback: CallbackQuery, state: FSMC
 async def process_search_subscribers_by_username_id(message: Message, state: FSMContext, lang: str):
     """Админ прислал username или id подписчика"""
     username_id = message.text.strip()
-
+    
     admin_user_id = message.from_user.id
     admin_username = message.from_user.username or ""
     
     text_config = await get_config_lang(lang)
     
-    await state.update_data(username_id=username_id)
-
     user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
     if user_info_by_username_id is None:
         user_not_search = text_config["admin_text"]["user_not_search"]
@@ -461,6 +473,9 @@ async def process_search_subscribers_by_username_id(message: Message, state: FSM
         )
         logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел пользователя {username_id}")
         return
+    tg_id = user_info_by_username_id.get("tg_id")
+
+    await state.update_data(username_id=tg_id) # Сохраняем именно tg_id пользователя
 
     subscription_data = user_info_by_username_id.get("subscription_data")
     is_subscriber = subscription_data.get("subscription")
@@ -524,13 +539,14 @@ async def subscription_settings(callback: CallbackQuery, state: FSMContext, lang
     text_config = await get_config_lang(lang)
     
     data = await state.get_data()
-    tg_id = data.get("username_id")
-    if tg_id is None:
+    username_id = data.get("username_id")
+    if username_id is None:
         error_search_user = text_config["admin_text"]["error_search_user"]
         await callback.answer(error_search_user, show_alert=True)
         return
 
-    user_info_by_username_id = await db.get_user_by_username_or_id(tg_id)
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    tg_id = user_info_by_username_id.get("tg_id")
     subscription_data = user_info_by_username_id.get("subscription_data")
     is_subscriber = subscription_data.get("subscription")
 
@@ -538,14 +554,183 @@ async def subscription_settings(callback: CallbackQuery, state: FSMContext, lang
         await safe_edit_message(
             callback,
             _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "subscription_settings"),
-            reply_markup=(await positive_proccess_search_subscribers_kb(lang)).as_markup(),
+            reply_markup=(await subscription_settings_kb(tg_id, lang)).as_markup(),
         )
     else:
         user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
         await safe_edit_message(
             callback,
             text=user_not_subscriber,
-            reply_markup=(await search_subscribers_kb(admin_user_id, lang)).as_markup(),
+            reply_markup=(await search_subscribers_kb(tg_id, lang)).as_markup(),
         )
-        logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {tg_id}")
+        logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {username_id}")
         return
+
+@router.callback_query(F.data == "bybit_settings")
+async def bybit_settings(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ устанавливает настройки подписки пользователю"""
+
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        error_search_user = text_config["admin_text"]["error_search_user"]
+        await callback.answer(error_search_user, show_alert=True)
+        return
+
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    subscription_data = user_info_by_username_id.get("subscription_data")
+    is_subscriber = subscription_data.get("subscription")
+
+    if is_subscriber:
+        await safe_edit_message(
+            callback,
+            _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "bybit_settings"),
+            reply_markup=(await bybit_settings_kb(username_id, lang)).as_markup(),
+        )
+    else:
+        user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
+        await safe_edit_message(
+            callback,
+            text=user_not_subscriber,
+            reply_markup=(await search_subscribers_kb(username_id, lang)).as_markup(),
+        )
+        logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {username_id}")
+        return
+
+@router.callback_query(F.data == "statistics_info")
+async def statistics_info(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ устанавливает настройки подписки пользователю"""
+
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        error_search_user = text_config["admin_text"]["error_search_user"]
+        await callback.answer(error_search_user, show_alert=True)
+        return
+
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    subscription_data = user_info_by_username_id.get("subscription_data")
+    is_subscriber = subscription_data.get("subscription")
+
+    if is_subscriber:
+        await safe_edit_message(
+            callback,
+            _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "statistics_info"),
+            reply_markup=(await statistics_info_kb(username_id, lang)).as_markup(),
+        )
+    else:
+        user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
+        await safe_edit_message(
+            callback,
+            text=user_not_subscriber,
+            reply_markup=(await search_subscribers_kb(username_id, lang)).as_markup(),
+        )
+        logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {username_id}")
+        return
+
+@router.callback_query(F.data == "edit_subscription_mode")
+async def edit_subscription_mode(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ устанавливает настройки подписки пользователю"""
+
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        error_search_user = text_config["admin_text"]["error_search_user"]
+        await callback.answer(error_search_user, show_alert=True)
+        return
+    
+    subscription_status = await db.get_subscription_status(username_id)
+    if subscription_status:
+        await db.update_subscription(username_id, False)
+    else:
+        await db.update_subscription(username_id, True)
+    
+    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
+    await safe_edit_message(
+        callback,
+        _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "subscription_settings"),
+        reply_markup=(await subscription_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(f"Админ {admin_user_id} ({admin_username}) изменил состояние подписки пользователя {username_id}")
+
+@router.callback_query(F.data == "edit_date_end_subs")
+async def edit_date_end_subs(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ устанавливает настройки подписки подписчику (дата окончания подписки)"""
+
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        error_search_user = text_config["admin_text"]["error_search_user"]
+        await callback.answer(error_search_user, show_alert=True)
+        return
+
+    await state.set_state(AdminStates.edit_end_subscription_date)
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text_config["admin_text"]["edit_date_end_subs"],
+        reply_markup=(await back_to_subscription_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) начал изменение даты окончания подписки пользователя {username_id}"
+    )
+
+
+@router.message(AdminStates.edit_end_subscription_date, F.text)
+async def process_edit_date_end_subs(message: Message, state: FSMContext, lang: str):
+    """Админ вводит новую дату окончания подписки в формате yyyy.mm.dd. hh.mm.ss."""
+    admin_user_id = message.from_user.id
+    admin_username = message.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await message.answer(text_config["admin_text"]["error_search_user"])
+        await state.clear()
+        return
+
+    date_text = message.text.strip()
+    try:
+        end_subscription_date = await db.update_end_subscription_date_from_string(username_id, date_text)
+    except ValidationError:
+        await message.answer(
+            text_config["admin_text"]["edit_date_end_subs_invalid_format"],
+            reply_markup=(await subscription_settings_kb(username_id, lang)).as_markup(),
+        )
+        return
+    except UsersRepositoryError as e:
+        await message.answer(f"Не удалось обновить дату: {e}")
+        return
+
+    user_info = await db.get_user_by_username_or_id(username_id)
+    if user_info is None:
+        await message.answer(text_config["admin_text"]["error_user_not_found"])
+        return
+
+    await message.answer(
+        text_config["admin_text"]["edit_date_end_subs_success"].format(
+            end_subscription_date=end_subscription_date.strftime("%Y-%m-%d %H:%M:%S")
+        ),
+        reply_markup=(await back_to_subscription_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) изменил дату окончания подписки пользователя {username_id} "
+        f"на {end_subscription_date.isoformat()}"
+    )

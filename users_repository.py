@@ -269,6 +269,15 @@ class UsersRepository:
             logger.error("Ошибка при обновлении subscription tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении subscription: {e}") from e
 
+    async def get_subscription_status(self, tg_id: int) -> bool:
+        """Получить состояние подписки для пользователя"""
+        logger.info("Получение состояния подписки для пользователя tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is not None:
+            return user["subscription_data"]["subscription"]
+        logger.info("Пользователь tg_id=%s не найден", tg_id)
+        raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+
     async def update_wait_sub_confirmation(self, tg_id: int, wait_sub_confirmation: bool) -> None:
         if not isinstance(wait_sub_confirmation, bool):
             logger.warning("update_wait_sub_confirmation: невалидное значение для tg_id=%s", tg_id)
@@ -343,6 +352,30 @@ class UsersRepository:
         except pymongo_errors.PyMongoError as e:
             logger.error("Ошибка при обновлении end_subscription_date tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении end_subscription_date: {e}") from e
+
+    async def update_end_subscription_date_from_string(self, tg_id: int, date_str: str) -> datetime:
+        """
+        Обновить дату окончания подписки из строки формата `yyyy.mm.dd. hh.mm.ss`.
+        В Mongo дата будет сохранена как BSON Date (ISO date).
+        """
+        if not isinstance(date_str, str) or not date_str.strip():
+            logger.warning("update_end_subscription_date_from_string: пустая дата для tg_id=%s", tg_id)
+            raise ValidationError("Дата должна быть непустой строкой")
+
+        normalized_date = date_str.strip()
+        try:
+            parsed_date = datetime.strptime(normalized_date, "%Y.%m.%d. %H.%M.%S")
+        except ValueError as e:
+            logger.warning(
+                "update_end_subscription_date_from_string: неверный формат даты для tg_id=%s, value=%s",
+                tg_id,
+                normalized_date,
+            )
+            raise ValidationError("Неверный формат даты. Используйте yyyy.mm.dd. hh.mm.ss") from e
+
+        await self.update_end_subscription_date(tg_id, parsed_date)
+        logger.info("Дата окончания подписки обновлена из строки для tg_id=%s", tg_id)
+        return parsed_date
 
     async def prolong_end_subscription_date(self, tg_id: int, end_subscription_date: datetime | None, subscription_type: str) -> None:
         if subscription_type == "1 мес":

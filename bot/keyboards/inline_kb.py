@@ -1,5 +1,6 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.languages._lang_func import get_config_lang
+from users_repository import db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
 
 # -------------------------------------------------------------
@@ -372,8 +373,54 @@ async def subscription_settings_kb(user_id: int, lang: str) -> InlineKeyboardBui
     """
     Кнопки в настройках подписки
     """
+    subscription_status = await db.get_subscription_status(user_id)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
+    if subscription_status:
+        kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_subscription_false_mode"], callback_data="edit_subscription_mode")
+    else:
+        kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_subscription_true_mode"], callback_data="edit_subscription_mode")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_date_end_subs"], callback_data="edit_date_end_subs")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
+    kb.adjust(1)
+    return kb
+
+async def back_to_subscription_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки при возврате в настройках подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscription_settings")
+    kb.adjust(1)
+    return kb
+
+async def bybit_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в настройках клиента ByBit
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_api_key"], callback_data="edit_api_key")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_api_secret"], callback_data="edit_api_secret")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_sum_for_trades"], callback_data="edit_sum_for_trades")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_stop_trades"], callback_data="edit_stop_trades")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
+    kb.adjust(1)
+    return kb
+
+async def back_to_bybit_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки при изменения API key
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="bybit_settings")
+    kb.adjust(1)
+    return kb
+
+async def statistics_info_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в статистике подписчика
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["trading_list"], callback_data="trading_list")
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb
