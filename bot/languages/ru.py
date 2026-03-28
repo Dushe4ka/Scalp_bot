@@ -57,6 +57,9 @@ RU_CONFIGURATION = {
     "edit_api_key": "Введите новый API ключ",
     "edit_api_secret": "Введите новый API secret",
     "edit_sum_for_trades": "Введите новую сумму сделки",
+    "edit_api_key_success": "API ключ обновлён.",
+    "edit_api_secret_success": "API secret обновлён.",
+    "edit_sum_for_trades_success": "Сумма сделки обновлена: {sum_for_trades}",
     "statistics_info": "📊 Статистика подписчика: \n\nОбщее количество сделок: {total_trades}\nОбщий PnL: {total_pnl}\nКоличество + сделок: {positive_trades}\nЗаработанная суммка с + сделок: {sum_positive_trades}\n Количество - сделок: {negative_trades}\nПроигранная сумма с - сделок: {sum_negative_trades}",
     "error_search_user": "Сначала найдите пользователя. 🚫",
     "error_user_not_found": "Пользователь не найден в БД. 🚫",
@@ -84,6 +87,8 @@ RU_CONFIGURATION = {
     "edit_api_secret": "Изменить API secret",
     "edit_sum_for_trades": "Изменить сумму сделки",
     "edit_stop_trades": "Остановить/Продолжить торговлю",
+    "edit_stop_trading_stop_mode": "Остановить торговлю",
+    "edit_stop_trading_resume_mode": "Продолжить торговлю",
     "statistics_info": "Статистика 📊",
     "trading_list": "Список сделок",
   }, # -------------------------------------------------------------

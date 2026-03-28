@@ -498,6 +498,25 @@ class UsersRepository:
   
     # --- bybit_data ---
 
+    @staticmethod
+    def _bybit_create_date_fields_if_first_full_pair(
+        existing_create_date: Any,
+        new_api_key: str,
+        new_api_secret: str,
+        utc_now: datetime,
+    ) -> dict[str, datetime]:
+        """
+        Ставит create_date при первой полной паре ключ+секрет (оба непустые после strip),
+        только если в документе create_date ещё не задан.
+        """
+        if existing_create_date is not None:
+            return {}
+        key_ok = isinstance(new_api_key, str) and bool(new_api_key.strip())
+        secret_ok = isinstance(new_api_secret, str) and bool(new_api_secret.strip())
+        if key_ok and secret_ok:
+            return {"bybit_data.create_date": utc_now}
+        return {}
+
     async def update_sum_for_trades(self, tg_id: int, sum_for_trades: str) -> None:
         if not isinstance(sum_for_trades, str):
             logger.warning("update_sum_for_trades: невалидное значение для tg_id=%s", tg_id)
@@ -518,10 +537,27 @@ class UsersRepository:
             logger.warning("update_api_key: невалидное значение для tg_id=%s", tg_id)
             raise ValidationError("api_key должен быть str")
         logger.info("Обновление api_key для tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is None:
+            raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+        bybit = user.get("bybit_data") or {}
+        now = datetime.utcnow()
+        secret_after = bybit.get("api_secret") if isinstance(bybit.get("api_secret"), str) else ""
+        create_extra = self._bybit_create_date_fields_if_first_full_pair(
+            bybit.get("create_date"),
+            api_key,
+            secret_after,
+            now,
+        )
+        set_fields: dict[str, Any] = {
+            "bybit_data.api_key": api_key,
+            "bybit_data.update_date": now,
+            **create_extra,
+        }
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"bybit_data.api_key": api_key, "bybit_data.update_date": datetime.utcnow()}},
+                {"$set": set_fields},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
@@ -533,10 +569,27 @@ class UsersRepository:
             logger.warning("update_api_secret: невалидное значение для tg_id=%s", tg_id)
             raise ValidationError("api_secret должен быть str")
         logger.info("Обновление api_secret для tg_id=%s", tg_id)
+        user = await self.get_user(tg_id)
+        if user is None:
+            raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+        bybit = user.get("bybit_data") or {}
+        now = datetime.utcnow()
+        key_after = bybit.get("api_key") if isinstance(bybit.get("api_key"), str) else ""
+        create_extra = self._bybit_create_date_fields_if_first_full_pair(
+            bybit.get("create_date"),
+            key_after,
+            api_secret,
+            now,
+        )
+        set_fields: dict[str, Any] = {
+            "bybit_data.api_secret": api_secret,
+            "bybit_data.update_date": now,
+            **create_extra,
+        }
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"bybit_data.api_secret": api_secret, "bybit_data.update_date": datetime.utcnow()}},
+                {"$set": set_fields},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
@@ -581,7 +634,7 @@ class UsersRepository:
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"stop_trading": stop_trading}},
+                {"$set": {"bybit_data.stop_trading": stop_trading}},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:

@@ -397,12 +397,21 @@ async def bybit_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в настройках клиента ByBit
     """
+    cfg = await get_config_lang(lang)
+    user = await db.get_user(user_id)
+    stop_trading = False
+    if user is not None:
+        stop_trading = (user.get("bybit_data") or {}).get("stop_trading") is True
+
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_api_key"], callback_data="edit_api_key")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_api_secret"], callback_data="edit_api_secret")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_sum_for_trades"], callback_data="edit_sum_for_trades")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_stop_trades"], callback_data="edit_stop_trades")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
+    kb.button(text=cfg["admin_btn"]["edit_api_key"], callback_data="edit_api_key")
+    kb.button(text=cfg["admin_btn"]["edit_api_secret"], callback_data="edit_api_secret")
+    kb.button(text=cfg["admin_btn"]["edit_sum_for_trades"], callback_data="edit_sum_for_trades")
+    if stop_trading:
+        kb.button(text=cfg["admin_btn"]["edit_stop_trading_resume_mode"], callback_data="edit_stop_trades")
+    else:
+        kb.button(text=cfg["admin_btn"]["edit_stop_trading_stop_mode"], callback_data="edit_stop_trades")
+    kb.button(text=cfg["general"]["back"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb
 

@@ -36,10 +36,23 @@ EN_CONFIGURATION = {
   }, # -------------------------------------------------------------
   "admin_text": {
     "admin_menu": "Admin panel 👨‍💻\n\nChoose an action:",
+    "error_search_user": "Find a user first. 🚫",
+    "error_user_not_found": "User not found in the database. 🚫",
+    "edit_api_key": "Enter the new API key",
+    "edit_api_secret": "Enter the new API secret",
+    "edit_sum_for_trades": "Enter the new trade amount",
+    "edit_api_key_success": "API key updated.",
+    "edit_api_secret_success": "API secret updated.",
+    "edit_sum_for_trades_success": "Trade amount updated: {sum_for_trades}",
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Users",
     "statistics": "Statistics",
+    "edit_api_key": "Change API key",
+    "edit_api_secret": "Change API secret",
+    "edit_sum_for_trades": "Change trade amount",
+    "edit_stop_trading_stop_mode": "Stop trading",
+    "edit_stop_trading_resume_mode": "Resume trading",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Back",

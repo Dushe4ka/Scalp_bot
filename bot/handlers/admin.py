@@ -601,6 +601,222 @@ async def bybit_settings(callback: CallbackQuery, state: FSMContext, lang: str):
         logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {username_id}")
         return
 
+
+@router.callback_query(F.data == "edit_api_key")
+async def edit_api_key(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ меняет API ключ подписчика."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await callback.answer(text_config["admin_text"]["error_search_user"], show_alert=True)
+        return
+
+    await state.set_state(AdminStates.edit_bybit_api_key)
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text_config["admin_text"]["edit_api_key"],
+        reply_markup=(await back_to_bybit_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) начал смену API ключа пользователя {username_id}"
+    )
+
+
+@router.callback_query(F.data == "edit_api_secret")
+async def edit_api_secret(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ меняет API secret подписчика."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await callback.answer(text_config["admin_text"]["error_search_user"], show_alert=True)
+        return
+
+    await state.set_state(AdminStates.edit_bybit_api_secret)
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text_config["admin_text"]["edit_api_secret"],
+        reply_markup=(await back_to_bybit_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) начал смену API secret пользователя {username_id}"
+    )
+
+
+@router.callback_query(F.data == "edit_sum_for_trades")
+async def edit_sum_for_trades(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Админ меняет сумму сделки подписчика."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await callback.answer(text_config["admin_text"]["error_search_user"], show_alert=True)
+        return
+
+    await state.set_state(AdminStates.edit_bybit_sum_for_trades)
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text_config["admin_text"]["edit_sum_for_trades"],
+        reply_markup=(await back_to_bybit_settings_kb(username_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) начал смену суммы сделки пользователя {username_id}"
+    )
+
+
+@router.callback_query(F.data == "edit_stop_trades")
+async def edit_stop_trades(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Переключение остановки торговли у подписчика."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await callback.answer(text_config["admin_text"]["error_search_user"], show_alert=True)
+        return
+
+    tg_id = int(username_id)
+    user = await db.get_user(tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    bybit_data = user.get("bybit_data") or {}
+    current_stop = bybit_data.get("stop_trading") is True
+    try:
+        await db.update_stop_trading(tg_id, not current_stop)
+    except (ValidationError, UsersRepositoryError) as e:
+        await callback.answer(f"Не удалось обновить: {e}", show_alert=True)
+        return
+
+    await callback.answer()
+
+    user_info = await db.get_user_by_username_or_id(tg_id)
+    if user_info is None:
+        logger.error("После update_stop_trading пользователь tg_id=%s не найден", tg_id)
+        return
+
+    await safe_edit_message(
+        callback,
+        _format_admin_subscribers_text_by_template(user_info, text_config, "bybit_settings"),
+        reply_markup=(await bybit_settings_kb(tg_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) изменил stop_trading пользователя {tg_id} -> {not current_stop}"
+    )
+
+
+@router.message(AdminStates.edit_bybit_api_key, F.text)
+async def process_edit_api_key(message: Message, state: FSMContext, lang: str):
+    """Админ ввёл новый API ключ."""
+    admin_user_id = message.from_user.id
+    admin_username = message.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await message.answer(text_config["admin_text"]["error_search_user"])
+        await state.clear()
+        return
+
+    tg_id = int(username_id)
+    value = message.text.strip()
+    try:
+        await db.update_api_key(tg_id, value)
+    except (ValidationError, UsersRepositoryError) as e:
+        await message.answer(f"Не удалось обновить API ключ: {e}")
+        return
+
+    await state.set_state(None)
+    await message.answer(
+        text_config["admin_text"]["edit_api_key_success"],
+        reply_markup=(await back_to_bybit_settings_kb(tg_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) обновил API ключ пользователя {tg_id}"
+    )
+
+
+@router.message(AdminStates.edit_bybit_api_secret, F.text)
+async def process_edit_api_secret(message: Message, state: FSMContext, lang: str):
+    """Админ ввёл новый API secret."""
+    admin_user_id = message.from_user.id
+    admin_username = message.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await message.answer(text_config["admin_text"]["error_search_user"])
+        await state.clear()
+        return
+
+    tg_id = int(username_id)
+    value = message.text.strip()
+    try:
+        await db.update_api_secret(tg_id, value)
+    except (ValidationError, UsersRepositoryError) as e:
+        await message.answer(f"Не удалось обновить API secret: {e}")
+        return
+
+    await state.set_state(None)
+    await message.answer(
+        text_config["admin_text"]["edit_api_secret_success"],
+        reply_markup=(await back_to_bybit_settings_kb(tg_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) обновил API secret пользователя {tg_id}"
+    )
+
+
+@router.message(AdminStates.edit_bybit_sum_for_trades, F.text)
+async def process_edit_sum_for_trades(message: Message, state: FSMContext, lang: str):
+    """Админ ввёл новую сумму сделки (строка, как в репозитории)."""
+    admin_user_id = message.from_user.id
+    admin_username = message.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    data = await state.get_data()
+    username_id = data.get("username_id")
+    if username_id is None:
+        await message.answer(text_config["admin_text"]["error_search_user"])
+        await state.clear()
+        return
+
+    tg_id = int(username_id)
+    value = message.text.strip()
+    try:
+        await db.update_sum_for_trades(tg_id, value)
+    except (ValidationError, UsersRepositoryError) as e:
+        await message.answer(f"Не удалось обновить сумму: {e}")
+        return
+
+    await state.set_state(None)
+    await message.answer(
+        text_config["admin_text"]["edit_sum_for_trades_success"].format(sum_for_trades=value),
+        reply_markup=(await back_to_bybit_settings_kb(tg_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) обновил sum_for_trades пользователя {tg_id}"
+    )
+
+
 @router.callback_query(F.data == "statistics_info")
 async def statistics_info(callback: CallbackQuery, state: FSMContext, lang: str):
     """Админ устанавливает настройки подписки пользователю"""
@@ -734,3 +950,4 @@ async def process_edit_date_end_subs(message: Message, state: FSMContext, lang: 
         f"Админ {admin_user_id} ({admin_username}) изменил дату окончания подписки пользователя {username_id} "
         f"на {end_subscription_date.isoformat()}"
     )
+
