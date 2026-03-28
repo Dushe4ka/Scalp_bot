@@ -8,8 +8,8 @@ from aiogram.fsm.context import FSMContext
 from logger_config import setup_logger
 from bot.languages._lang_func import get_config_lang
 from bot.keyboards.inline_kb import (
-    admin_menu_kb, 
-    users_list_kb, 
+    admin_menu_kb,
+    users_list_kb,
     wait_confirm_kb,
     search_wait_confirm_user_kb,
     positive_proccess_search_wait_confirm_user_kb,
@@ -22,6 +22,15 @@ from bot.keyboards.inline_kb import (
     statistics_info_kb,
     back_to_bybit_settings_kb,
     back_to_subscription_settings_kb,
+    wait_confirm_list_page_kb,
+    subscribers_list_page_kb,
+)
+from bot.callback_data.admin_lists import (
+    ADMIN_LIST_PAGE_SIZE,
+    WaitConfirmListPageCb,
+    WaitConfirmUserCb,
+    SubscribersListPageCb,
+    SubscribersUserCb,
 )
 from bot.utils.helpers import safe_edit_message
 from bot.states.admin_states import AdminStates
@@ -30,6 +39,18 @@ from users_repository import db, UsersRepositoryError, ValidationError
 
 router = Router()
 logger = setup_logger(__name__)
+
+
+async def _wait_confirm_kb_from_list(state: FSMContext) -> bool:
+    return bool((await state.get_data()).get("wait_confirm_from_list"))
+
+
+async def _subscribers_kb_from_list(state: FSMContext) -> bool:
+    return bool((await state.get_data()).get("subscribers_from_list"))
+
+
+def _user_doc_for_template(doc: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in doc.items() if k != "_id"}
 
 
 def _format_dt(dt: Any) -> str:
@@ -178,6 +199,91 @@ async def wait_confirm(callback: CallbackQuery, state: FSMContext, lang: str):
         reply_markup=(await wait_confirm_kb(user_id, lang)).as_markup())
     logger.info(f"Пользователь {user_id} ({username}) открыл список ожидающих подтверждения")
 
+
+async def _render_wait_confirm_list(callback: CallbackQuery, state: FSMContext, lang: str, page: int) -> None:
+    await state.update_data(wait_confirm_from_list=False)
+    text_config = await get_config_lang(lang)
+    try:
+        total = await db.count_users_waiting_confirmation()
+    except UsersRepositoryError as e:
+        await callback.answer(str(e), show_alert=True)
+        return
+    if total == 0:
+        text = text_config["admin_text"]["wait_confirm_list_empty"]
+        entries: list[dict[str, Any]] = []
+        page = 0
+    else:
+        pages = max(1, (total + ADMIN_LIST_PAGE_SIZE - 1) // ADMIN_LIST_PAGE_SIZE)
+        page = max(0, min(page, pages - 1))
+        skip = page * ADMIN_LIST_PAGE_SIZE
+        try:
+            entries = await db.list_users_waiting_confirmation(skip, ADMIN_LIST_PAGE_SIZE)
+        except UsersRepositoryError as e:
+            await callback.answer(str(e), show_alert=True)
+            return
+        text = text_config["admin_text"]["wait_confirm_list_title"].format(
+            page=page + 1,
+            pages=pages,
+            total=total,
+        )
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await wait_confirm_list_page_kb(entries, page, total, lang)).as_markup(),
+    )
+
+
+@router.callback_query(F.data == "wait_confirm_list")
+async def wait_confirm_list_open(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Список ожидающих подтверждения с пагинацией."""
+    await _render_wait_confirm_list(callback, state, lang, 0)
+
+
+@router.callback_query(WaitConfirmListPageCb.filter())
+async def wait_confirm_list_page(callback: CallbackQuery, callback_data: WaitConfirmListPageCb, state: FSMContext, lang: str):
+    await _render_wait_confirm_list(callback, state, lang, callback_data.page)
+
+
+@router.callback_query(WaitConfirmUserCb.filter())
+async def wait_confirm_list_pick_user(
+    callback: CallbackQuery,
+    callback_data: WaitConfirmUserCb,
+    state: FSMContext,
+    lang: str,
+):
+    text_config = await get_config_lang(lang)
+    tg_id = callback_data.tg_id
+    user_info = await db.get_user(tg_id)
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+    subscription_data = user_info.get("subscription_data") or {}
+    if not subscription_data.get("wait_sub_confirmation"):
+        await callback.answer(text_config["admin_text"]["user_not_wait_confirm"], show_alert=True)
+        return
+
+    await state.update_data(tg_id=tg_id, wait_confirm_from_list=True)
+    await callback.answer()
+    user_clean = _user_doc_for_template(user_info)
+    is_subscriber = subscription_data.get("subscription")
+    if not is_subscriber:
+        kb = await positive_proccess_search_wait_confirm_user_kb(
+            lang,
+            from_wait_list=True,
+        )
+    else:
+        kb = await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+            lang,
+            from_wait_list=True,
+        )
+    await safe_edit_message(
+        callback,
+        _format_admin_user_text_by_template(user_clean, text_config),
+        reply_markup=kb.as_markup(),
+    )
+
+
 @router.callback_query(F.data == "search_by_username_id")
 async def search_by_username_id(callback: CallbackQuery, state: FSMContext, lang: str):
     """Обработка нажатия на кнопку "Ввести username или ID пользователя"""
@@ -187,6 +293,7 @@ async def search_by_username_id(callback: CallbackQuery, state: FSMContext, lang
     text_config = await get_config_lang(lang)
     text = text_config["admin_text"]["search_by_username_id"]
 
+    await state.update_data(wait_confirm_from_list=False)
     await state.set_state(AdminStates.wait_confirm_user)
 
     await safe_edit_message(
@@ -204,8 +311,8 @@ async def process_search_by_username_id(message: Message, state: FSMContext, lan
     admin_username = message.from_user.username or ""
     
     text_config = await get_config_lang(lang)
-    
-    await state.update_data(username_id=username_id)
+
+    await state.update_data(username_id=username_id, wait_confirm_from_list=False)
 
     user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
     if user_info_by_username_id is None:
@@ -225,13 +332,23 @@ async def process_search_by_username_id(message: Message, state: FSMContext, lan
         await state.update_data(tg_id=user_info_by_username_id.get("tg_id"))
         await message.answer(
             _format_admin_user_text_by_template(user_info_by_username_id, text_config),
-            reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
+            reply_markup=(
+                await positive_proccess_search_wait_confirm_user_kb(
+                    lang,
+                    from_wait_list=await _wait_confirm_kb_from_list(state),
+                )
+            ).as_markup(),
         )
     elif wait_confirm and is_subscriber:
         await state.update_data(tg_id=user_info_by_username_id.get("tg_id"))
         await message.answer(
             _format_admin_user_text_by_template(user_info_by_username_id, text_config),
-            reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
+            reply_markup=(
+                await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+                    lang,
+                    from_wait_list=await _wait_confirm_kb_from_list(state),
+                )
+            ).as_markup(),
         )
     else:
         user_not_wait_confirm = text_config["admin_text"]["user_not_wait_confirm"]
@@ -286,8 +403,13 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
 
         await safe_edit_message(
             callback,
-            _format_admin_user_text_by_template(user, text_config),
-            reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
+            _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+            reply_markup=(
+                await positive_proccess_search_wait_confirm_user_kb(
+                    lang,
+                    from_wait_list=await _wait_confirm_kb_from_list(state),
+                )
+            ).as_markup(),
         )
         logger.info(f"Админ {admin_user_id} ({admin_username}) подтвердил подписку пользователю {username_id}")
 
@@ -335,8 +457,13 @@ async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang:
 
         await safe_edit_message(
             callback,
-            _format_admin_user_text_by_template(user, text_config),
-            reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
+            _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+            reply_markup=(
+                await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+                    lang,
+                    from_wait_list=await _wait_confirm_kb_from_list(state),
+                )
+            ).as_markup(),
         )
         logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {username_id}")
 
@@ -373,8 +500,13 @@ async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext
 
     await safe_edit_message(
         callback,
-        _format_admin_user_text_by_template(user, text_config),
-        reply_markup=(await positive_proccess_search_wait_confirm_user_kb_with_subscription(lang)).as_markup(),
+        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+        reply_markup=(
+            await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+                lang,
+                from_wait_list=await _wait_confirm_kb_from_list(state),
+            )
+        ).as_markup(),
     )
 
     logger.info(f"Админ {user_id} ({username}) отклонил продление подписки пользователю {username_id}")
@@ -412,8 +544,13 @@ async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: 
 
     await safe_edit_message(
         callback,
-        _format_admin_user_text_by_template(user, text_config),
-        reply_markup=(await positive_proccess_search_wait_confirm_user_kb(lang)).as_markup(),
+        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+        reply_markup=(
+            await positive_proccess_search_wait_confirm_user_kb(
+                lang,
+                from_wait_list=await _wait_confirm_kb_from_list(state),
+            )
+        ).as_markup(),
     )
 
     logger.info(f"Админ {user_id} ({username}) отклонил подписку пользователю {username_id}")
@@ -437,6 +574,85 @@ async def subscribers(callback: CallbackQuery, lang: str):
         reply_markup=(await subscribers_kb(user_id, lang)).as_markup())
     logger.info(f"Пользователь {user_id} ({username}) открыл выбор метода поиска подписчиков")
 
+
+async def _render_subscribers_list(callback: CallbackQuery, state: FSMContext, lang: str, page: int) -> None:
+    await state.update_data(subscribers_from_list=False)
+    text_config = await get_config_lang(lang)
+    try:
+        total = await db.count_subscribers()
+    except UsersRepositoryError as e:
+        await callback.answer(str(e), show_alert=True)
+        return
+    if total == 0:
+        text = text_config["admin_text"]["subscribers_list_empty"]
+        entries: list[dict[str, Any]] = []
+        page = 0
+    else:
+        pages = max(1, (total + ADMIN_LIST_PAGE_SIZE - 1) // ADMIN_LIST_PAGE_SIZE)
+        page = max(0, min(page, pages - 1))
+        skip = page * ADMIN_LIST_PAGE_SIZE
+        try:
+            entries = await db.list_subscribers(skip, ADMIN_LIST_PAGE_SIZE)
+        except UsersRepositoryError as e:
+            await callback.answer(str(e), show_alert=True)
+            return
+        text = text_config["admin_text"]["subscribers_list_title"].format(
+            page=page + 1,
+            pages=pages,
+            total=total,
+        )
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await subscribers_list_page_kb(entries, page, total, lang)).as_markup(),
+    )
+
+
+@router.callback_query(F.data == "subscribers_list")
+async def subscribers_list_open(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Список подписчиков с пагинацией."""
+    await _render_subscribers_list(callback, state, lang, 0)
+
+
+@router.callback_query(SubscribersListPageCb.filter())
+async def subscribers_list_page(callback: CallbackQuery, callback_data: SubscribersListPageCb, state: FSMContext, lang: str):
+    await _render_subscribers_list(callback, state, lang, callback_data.page)
+
+
+@router.callback_query(SubscribersUserCb.filter())
+async def subscribers_list_pick_user(
+    callback: CallbackQuery,
+    callback_data: SubscribersUserCb,
+    state: FSMContext,
+    lang: str,
+):
+    text_config = await get_config_lang(lang)
+    tg_id = callback_data.tg_id
+    user_info = await db.get_user(tg_id)
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+    subscription_data = user_info.get("subscription_data") or {}
+    if not subscription_data.get("subscription"):
+        await callback.answer(text_config["admin_text"]["user_not_subscriber"], show_alert=True)
+        return
+
+    await state.update_data(username_id=tg_id, subscribers_from_list=True)
+    await callback.answer()
+    user_clean = _user_doc_for_template(user_info)
+    await safe_edit_message(
+        callback,
+        _format_admin_subscribers_text_by_template(user_clean, text_config, "main"),
+        reply_markup=(
+            await positive_proccess_search_subscribers_kb(
+                lang,
+                from_subscribers_list=True,
+            )
+        ).as_markup(),
+    )
+
+
 @router.callback_query(F.data == "search_subscribers_by_username_id")
 async def search_subscribers_by_username_id(callback: CallbackQuery, state: FSMContext, lang: str):
     """Обработка нажатия на кнопку "Ввести username или ID подписчика"""
@@ -446,6 +662,7 @@ async def search_subscribers_by_username_id(callback: CallbackQuery, state: FSMC
     text_config = await get_config_lang(lang)
     text = text_config["admin_text"]["search_subscribers_by_username_id"]
 
+    await state.update_data(subscribers_from_list=False)
     await state.set_state(AdminStates.subscribers_user)
 
     await safe_edit_message(
@@ -475,7 +692,7 @@ async def process_search_subscribers_by_username_id(message: Message, state: FSM
         return
     tg_id = user_info_by_username_id.get("tg_id")
 
-    await state.update_data(username_id=tg_id) # Сохраняем именно tg_id пользователя
+    await state.update_data(username_id=tg_id, subscribers_from_list=False)
 
     subscription_data = user_info_by_username_id.get("subscription_data")
     is_subscriber = subscription_data.get("subscription")
@@ -483,7 +700,12 @@ async def process_search_subscribers_by_username_id(message: Message, state: FSM
     if is_subscriber:
         await message.answer(
             _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "main"),
-            reply_markup=(await positive_proccess_search_subscribers_kb(lang)).as_markup(),
+            reply_markup=(
+                await positive_proccess_search_subscribers_kb(
+                    lang,
+                    from_subscribers_list=await _subscribers_kb_from_list(state),
+                )
+            ).as_markup(),
         )
     else:
         user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
@@ -518,7 +740,12 @@ async def subscribers_settings_main(callback: CallbackQuery, state: FSMContext, 
         await safe_edit_message(
             callback,
             _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "main"),
-            reply_markup=(await positive_proccess_search_subscribers_kb(lang)).as_markup(),
+            reply_markup=(
+                await positive_proccess_search_subscribers_kb(
+                    lang,
+                    from_subscribers_list=await _subscribers_kb_from_list(state),
+                )
+            ).as_markup(),
         )
     else:
         user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]

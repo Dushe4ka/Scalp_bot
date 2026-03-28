@@ -1,7 +1,29 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.languages._lang_func import get_config_lang
+from bot.callback_data.admin_lists import (
+    ADMIN_LIST_PAGE_SIZE,
+    SubscribersListPageCb,
+    SubscribersUserCb,
+    WaitConfirmListPageCb,
+    WaitConfirmUserCb,
+)
 from users_repository import db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
+
+
+def _admin_list_user_button_text(name: str, tg_id: int) -> str:
+    """Текст кнопки пользователя (лимит Telegram 64 символа)."""
+    nm = name if name else "—"
+    tid = str(tg_id)
+    base = f"{nm} | {tid}"
+    if len(base) <= 64:
+        return base
+    reserve = len(tid) + 4
+    max_nm = 64 - reserve
+    if max_nm < 4:
+        return tid[:64]
+    trimmed = nm[:max_nm].rstrip()
+    return f"{trimmed}… | {tid}"
 
 # -------------------------------------------------------------
 # Start keyboards
@@ -332,40 +354,143 @@ async def search_subscribers_kb(user_id: int, lang: str) -> InlineKeyboardBuilde
     kb.adjust(1)
     return kb
 
-async def positive_proccess_search_wait_confirm_user_kb(lang: str) -> InlineKeyboardBuilder:
+
+async def wait_confirm_list_page_kb(
+    entries: list[dict],
+    page: int,
+    total: int,
+    lang: str,
+) -> InlineKeyboardBuilder:
+    """Пагинированный список ожидающих подтверждения (по 10 на страницу)."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    for row in entries:
+        tid = row.get("tg_id")
+        if tid is None:
+            continue
+        nm = str(row.get("name") or "—")
+        kb.button(
+            text=_admin_list_user_button_text(nm, int(tid)),
+            callback_data=WaitConfirmUserCb(tg_id=int(tid)),
+        )
+    if total > 0:
+        total_pages = max(1, (total + ADMIN_LIST_PAGE_SIZE - 1) // ADMIN_LIST_PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        if page > 0:
+            kb.button(
+                text=cfg["admin_btn"]["list_prev_page"],
+                callback_data=WaitConfirmListPageCb(page=page - 1),
+            )
+        if (page + 1) * ADMIN_LIST_PAGE_SIZE < total:
+            kb.button(
+                text=cfg["admin_btn"]["list_next_page"],
+                callback_data=WaitConfirmListPageCb(page=page + 1),
+            )
+    kb.button(text=cfg["general"]["back"], callback_data="wait_confirm")
+    kb.adjust(1)
+    return kb
+
+
+async def subscribers_list_page_kb(
+    entries: list[dict],
+    page: int,
+    total: int,
+    lang: str,
+) -> InlineKeyboardBuilder:
+    """Пагинированный список подписчиков (по 10 на страницу)."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    for row in entries:
+        tid = row.get("tg_id")
+        if tid is None:
+            continue
+        nm = str(row.get("name") or "—")
+        kb.button(
+            text=_admin_list_user_button_text(nm, int(tid)),
+            callback_data=SubscribersUserCb(tg_id=int(tid)),
+        )
+    if total > 0:
+        total_pages = max(1, (total + ADMIN_LIST_PAGE_SIZE - 1) // ADMIN_LIST_PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        if page > 0:
+            kb.button(
+                text=cfg["admin_btn"]["list_prev_page"],
+                callback_data=SubscribersListPageCb(page=page - 1),
+            )
+        if (page + 1) * ADMIN_LIST_PAGE_SIZE < total:
+            kb.button(
+                text=cfg["admin_btn"]["list_next_page"],
+                callback_data=SubscribersListPageCb(page=page + 1),
+            )
+    kb.button(text=cfg["general"]["back"], callback_data="subscribers")
+    kb.adjust(1)
+    return kb
+
+
+async def positive_proccess_search_wait_confirm_user_kb(
+    lang: str,
+    *,
+    from_wait_list: bool = False,
+) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске пользователей, ожидающих подтверждение
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["confirm_subscription"], callback_data="confirm_subscription")
+    if from_wait_list:
+        kb.button(
+            text=cfg["admin_btn"]["back_to_user_list"],
+            callback_data=WaitConfirmListPageCb(page=0),
+        )
+    kb.button(text=cfg["admin_btn"]["confirm_subscription"], callback_data="confirm_subscription")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_subscription"], callback_data="cancel_subscription")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
+    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
     kb.adjust(1)
     return kb
 
-async def positive_proccess_search_subscribers_kb(lang: str) -> InlineKeyboardBuilder:
+async def positive_proccess_search_subscribers_kb(
+    lang: str,
+    *,
+    from_subscribers_list: bool = False,
+) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске подписчиков
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["bybit_settings"], callback_data="bybit_settings")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["statistics_info"], callback_data="statistics_info")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_subscribers_by_username_id")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="subscribers")
+    if from_subscribers_list:
+        kb.button(
+            text=cfg["admin_btn"]["back_to_user_list"],
+            callback_data=SubscribersListPageCb(page=0),
+        )
+    kb.button(text=cfg["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
+    kb.button(text=cfg["admin_btn"]["bybit_settings"], callback_data="bybit_settings")
+    kb.button(text=cfg["admin_btn"]["statistics_info"], callback_data="statistics_info")
+    kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_subscribers_by_username_id")
+    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="subscribers")
     kb.adjust(1)
     return kb
 
-async def positive_proccess_search_wait_confirm_user_kb_with_subscription(lang: str) -> InlineKeyboardBuilder:
+async def positive_proccess_search_wait_confirm_user_kb_with_subscription(
+    lang: str,
+    *,
+    from_wait_list: bool = False,
+) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске пользователей, ожидающих подтверждение с подпиской
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["prolong_subscription"], callback_data="admin_prolong_subscription")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    if from_wait_list:
+        kb.button(
+            text=cfg["admin_btn"]["back_to_user_list"],
+            callback_data=WaitConfirmListPageCb(page=0),
+        )
+    kb.button(text=cfg["admin_btn"]["prolong_subscription"], callback_data="admin_prolong_subscription")
+    kb.button(text=cfg["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
+    kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
+    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
     kb.adjust(1)
     return kb
 

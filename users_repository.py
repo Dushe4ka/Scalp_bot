@@ -134,6 +134,66 @@ class UsersRepository:
             logger.error("Ошибка при получении пользователя username или id=%s: %s", username_or_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при получении пользователя: {e}") from e
 
+    async def count_users_waiting_confirmation(self) -> int:
+        """Число пользователей с wait_sub_confirmation == True."""
+        logger.info("Подсчёт пользователей, ожидающих подтверждения подписки")
+        try:
+            n = await self._collection.count_documents({"subscription_data.wait_sub_confirmation": True})
+            return int(n)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка count_users_waiting_confirmation: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при подсчёте: {e}") from e
+
+    async def list_users_waiting_confirmation(self, skip: int, limit: int) -> list[dict[str, Any]]:
+        """Список пользователей с wait_sub_confirmation == True (сортировка по tg_id)."""
+        if skip < 0 or limit < 1:
+            raise ValidationError("skip и limit должны быть валидными")
+        logger.info("Список ожидающих подтверждения: skip=%s limit=%s", skip, limit)
+        try:
+            cursor = (
+                self._collection.find(
+                    {"subscription_data.wait_sub_confirmation": True},
+                    {"_id": 0, "name": 1, "tg_id": 1},
+                )
+                .sort("tg_id", 1)
+                .skip(skip)
+                .limit(limit)
+            )
+            return await cursor.to_list(length=limit)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_users_waiting_confirmation: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении списка: {e}") from e
+
+    async def count_subscribers(self) -> int:
+        """Число пользователей с активной подпиской (subscription == True)."""
+        logger.info("Подсчёт подписчиков")
+        try:
+            n = await self._collection.count_documents({"subscription_data.subscription": True})
+            return int(n)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка count_subscribers: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при подсчёте: {e}") from e
+
+    async def list_subscribers(self, skip: int, limit: int) -> list[dict[str, Any]]:
+        """Список подписчиков (сортировка по tg_id)."""
+        if skip < 0 or limit < 1:
+            raise ValidationError("skip и limit должны быть валидными")
+        logger.info("Список подписчиков: skip=%s limit=%s", skip, limit)
+        try:
+            cursor = (
+                self._collection.find(
+                    {"subscription_data.subscription": True},
+                    {"_id": 0, "name": 1, "tg_id": 1},
+                )
+                .sort("tg_id", 1)
+                .skip(skip)
+                .limit(limit)
+            )
+            return await cursor.to_list(length=limit)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_subscribers: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении списка: {e}") from e
+
     async def create_user(self, tg_id: int, name: str, language: str = None) -> dict[str, Any]:
         """Создать пользователя с дефолтной структурой. При существующем tg_id — UserNotFoundError не поднимаем, а дубликат обработаем."""
         logger.info("Создание пользователя tg_id=%s, name=%s, language=%s", tg_id, name, language)

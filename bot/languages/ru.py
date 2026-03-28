@@ -46,6 +46,11 @@ RU_CONFIGURATION = {
     "search_subscribers_by_username_id": "Введите username или ID подписчика",
     "user_not_search": "Пользователь не найден 🚫",
     "user_not_wait_confirm": "Пользователь не ожидает подтверждения 🚫",
+    "user_not_subscriber": "Пользователь не является подписчиком 🚫",
+    "wait_confirm_list_title": "Ожидают подтверждения подписки\n\nСтр. {page} из {pages} · всего {total}",
+    "wait_confirm_list_empty": "Никто не ожидает подтверждения.",
+    "subscribers_list_title": "Подписчики\n\nСтр. {page} из {pages} · всего {total}",
+    "subscribers_list_empty": "Подписчиков нет.",
     "user_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}",
     "subscribers": "Подписчики👥\n\nВыберите метод поиска подписчиков",
     "subscribers_main_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}",
@@ -91,6 +96,9 @@ RU_CONFIGURATION = {
     "edit_stop_trading_resume_mode": "Продолжить торговлю",
     "statistics_info": "Статистика 📊",
     "trading_list": "Список сделок",
+    "list_prev_page": "◀️ Пред.",
+    "list_next_page": "След. ▶️",
+    "back_to_user_list": "К списку",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Назад",
