@@ -27,3 +27,6 @@ ADMIN_IDS = {
     for x in ADMIN_IDS_RAW.split(",")
     if x.strip().isdigit()
 }
+
+# URL сервера Scalp_bot_api
+SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:8050")

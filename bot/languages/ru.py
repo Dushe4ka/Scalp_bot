@@ -33,14 +33,38 @@ RU_CONFIGURATION = {
     "profile_menu": "Мой профиль 👤\nДата оформления подписки: {payment_date}\nТип подписки: {subscription_type}\nЦена сделки: {sum_for_trades}\nAPI ключ указан: {api_key}",
     "profile_menu_without_subscription": "Мой профиль 👤\n\n🚫 Подписка не оформленa\n💬 Нажмите на кнопку ниже и следуйте инструкции чтобы оформить подписку",
     "profile_menu_wait_sub_confirmation": "Мой профиль 👤\n\n🎉 Спасибо за оплату! \n🕒 Ожидание подтверждения подписки\n💬 Пожалуйста, подождите 24 часа для подтверждения вашего платежа",
+    "profile_statistics": "📊 Статистика \n\nОбщее количество сделок: {total_trades}\nОбщий PnL: {total_pnl}\nКоличество + сделок: {positive_trades}\nЗаработанная суммка с + сделок: {sum_positive_trades}\n Количество - сделок: {negative_trades}\nПроигранная сумма с - сделок: {sum_negative_trades}",
+    "profile_settings": "⚙️ Настройки \n\nAPI ключ: {api_key}\nAPI секрет: {api_secret}\nСумма для открытия сделки: {sum_for_trades}",
+    "profile_settings_api_key": "Введите новый API ключ",
+    "profile_settings_api_secret": "Введите новый API секрет",
+    "profile_settings_sum_for_trades": "Введите новую сумму сделки",
   },
   "profile_btn": {
     "subscription_buy": "Приобрести подписку",
     "tech_support": "Тех. поддержка",
+    "statistics": "📊 Статистика", # ----
+    "settings_profile": "⚙️ Настройки", # ---
+    "edit_api_key_secret": "🔑 API Key / Secret",
+    "edit_sum_for_trades": "💵 Сумма сделки",
+    "trading": "📈 Торговля", # ----
+    "pause_trading": "⏸️ Приостановить торговлю",
+    "resume_trading": "▶️ Продолжить торговлю",
+    "stop_trading": "🛑 Остановить алгоритм",
+    "stop_all_trading": "Все алгоритмы",
+    "name_coin_stop": "По названию монеты",
+    "trading_portfolio": "💰 Баланс", # ----
+    "history_trades": "📋 История сделок", # ----
+    "trades_list": "Список сделок",
+    "export_csv": "Экспорт CSV",
   }, # -------------------------------------------------------------
   "admin_text": {
     "admin_menu": "Админ-панель 👨‍💻\n\nВыберите действие:",
     "users_list": "Пользователи👥\n\nВыберите тип пользователей с которыми будете работать",
+    "statistics_project": "Статистика📊\n\nОбщее количество пользователей: {total_users}\nКоличество подписчиков: {total_subscribers}\nКоличество пользователей, ожидающих подтверждения подписки: {total_users_waiting_confirmation}",
+    "server": "Сервер🖥\n\nВыберите действие:",
+    "check_health": "Проверка работоспособности сервера",
+    "check_health_success": "✅ Сервер работает!\n\nСтатус: {status}\nСервис: {service}",
+    "check_health_error": "❌ Сервер недоступен\n\nКод ответа: {status}",
     "wait_confirm": "Ожидающие подтверждения🕒\n\nВыберите метод поиска пользователей",
     "search_by_username_id": "Введите username или ID пользователя",
     "search_subscribers_by_username_id": "Введите username или ID подписчика",
@@ -70,8 +94,10 @@ RU_CONFIGURATION = {
     "error_user_not_found": "Пользователь не найден в БД. 🚫",
   }, # -------------------------------------------------------------
   "admin_btn": {
-    "users_list": "Пользователи",
-    "statistics": "Статистика",
+    "users_list": "Пользователи 👥",
+    "statistics_project": "Статистика 📊",
+    "server": "Сервер 🖥",
+    "check_health": "Проверка работоспособности сервера",
     "wait_confirm": "Ожидающие подтверждения",
     "subscribers": "Подписчики",
     "wait_confirm_list": "Список пользователей",

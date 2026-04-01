@@ -851,6 +851,38 @@ class UsersRepository:
 
         logger.info(f"Админ отклонил продление подписки {tg_id}")
 
+    async def get_count_subscribers(self) -> int:
+        """
+        Возвращает количество подписчиков (subscription_data.subscription: true)
+        """
+        try:
+            r = await self._collection.count_documents({"subscription_data.subscription": True})
+            return r
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка при получении количества подписчиков: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении количества подписчиков: {e}") from e
+
+    async def get_count_users_waiting_confirmation(self) -> int:
+        """
+        Возвращает количество пользователей, ожидающих подтверждения подписки (subscription_data.wait_sub_confirmation: true)
+        """
+        try:
+            r = await self._collection.count_documents({"subscription_data.wait_sub_confirmation": True})
+            return r
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка при получении количества пользователей, ожидающих подтверждения подписки: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении количества пользователей, ожидающих подтверждения подписки: {e}") from e
+
+    async def get_count_all_users(self) -> int:
+        """
+        Возвращает количество всех пользователей (countDocuments)
+        """
+        try:
+            r = await self._collection.count_documents({})
+            return r
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка при получении количества всех пользователей: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при получении количества всех пользователей: {e}") from e
 
     async def close(self) -> None:
         """Закрыть соединение с MongoDB."""

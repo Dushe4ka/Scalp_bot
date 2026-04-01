@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+import aiohttp
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -24,6 +25,9 @@ from bot.keyboards.inline_kb import (
     back_to_subscription_settings_kb,
     wait_confirm_list_page_kb,
     subscribers_list_page_kb,
+    statistics_project_kb,
+    server_kb,
+    back_to_server_kb,
 )
 from bot.callback_data.admin_lists import (
     ADMIN_LIST_PAGE_SIZE,
@@ -33,8 +37,10 @@ from bot.callback_data.admin_lists import (
     SubscribersUserCb,
 )
 from bot.utils.helpers import safe_edit_message
+from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
 from users_repository import db, UsersRepositoryError, ValidationError
+from config import SERVER_URL
 
 
 router = Router()
@@ -51,15 +57,6 @@ async def _subscribers_kb_from_list(state: FSMContext) -> bool:
 
 def _user_doc_for_template(doc: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in doc.items() if k != "_id"}
-
-
-def _format_dt(dt: Any) -> str:
-    """Форматирует datetime из MongoDB (или None) для показа в Telegram."""
-    if dt is None:
-        return "—"
-    if isinstance(dt, datetime):
-        return dt.strftime("%Y-%m-%d %H:%M")
-    return str(dt)
 
 def _format_admin_user_text_by_template(user: dict[str, Any], text_config: dict[str, Any]) -> str:
     template = text_config.get("admin_text", {}).get("user_info")
@@ -132,6 +129,17 @@ def _format_admin_subscribers_text_by_template(user: dict[str, Any], text_config
             sum_negative_trades=statistics_data.get("sum_negative_trades", "—"),
         )
 
+async def _format_admin_statistics_project_text_by_template(text_config: dict[str, Any]) -> str:
+    template = text_config.get("admin_text", {}).get("statistics_project")
+    total_users = await db.get_count_all_users()
+    total_subscribers = await db.get_count_subscribers()
+    total_users_waiting_confirmation = await db.get_count_users_waiting_confirmation()
+    return template.format(
+        total_users=total_users,
+        total_subscribers=total_subscribers,
+        total_users_waiting_confirmation=total_users_waiting_confirmation,
+    )
+
 @router.message(Command("admin"))
 async def admin_start(message: Message, lang: str):
     """Обработка команды /admin"""
@@ -177,6 +185,24 @@ async def users_list(callback: CallbackQuery, lang: str):
         text,
         reply_markup=(await users_list_kb(user_id, lang)).as_markup())
     logger.info(f"Пользователь {user_id} ({username}) открыл список пользователей")
+
+# -------------------------------------------------------------
+# Статистика проекта
+# -------------------------------------------------------------
+
+@router.callback_query(F.data == "statistics_project")
+async def statistics_project(callback: CallbackQuery, lang: str):
+    """Обработка нажатия на кнопку "Статистика проекта"""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+    text = await _format_admin_statistics_project_text_by_template(text_config)
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await statistics_project_kb(user_id, lang)).as_markup())
+    logger.info(f"Пользователь {user_id} ({username}) открыл статистику проекта")
 
 # -------------------------------------------------------------
 # Ожидающие подтверждения
@@ -1178,3 +1204,65 @@ async def process_edit_date_end_subs(message: Message, state: FSMContext, lang: 
         f"на {end_subscription_date.isoformat()}"
     )
 
+# -------------------------------------------------------------
+# Сервер
+# -------------------------------------------------------------
+
+@router.callback_query(F.data == "server")
+async def server(callback: CallbackQuery, lang: str):
+    """Обработка нажатия на кнопку "Сервер"""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+    text = text_config["admin_text"]["server"]
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await server_kb(user_id, lang)).as_markup())
+    logger.info(f"Пользователь {user_id} ({username}) открыл сервер")
+
+@router.callback_query(F.data == "check_health")
+async def check_health(callback: CallbackQuery, lang: str):
+    """Проверка работоспособности сервера."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{SERVER_URL}/health",
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as response:
+                data = await response.json()
+                status = data.get("status", "unknown")
+                service = data.get("service", "N/A")
+                if response.status == 200:
+                    text = text_config["admin_text"]["check_health_success"].format(
+                        status=status,
+                        service=service,
+                    )
+                else:
+                    text = text_config["admin_text"]["check_health_error"].format(
+                        status=status,
+                    )
+    except aiohttp.ClientError as e:
+        text = text_config["admin_text"]["check_health_error"].format(
+            status=e,
+        )
+        logger.error("Ошибка проверки здоровья сервера: %s", e, exc_info=True)
+    except Exception as e:
+        text = text_config["admin_text"]["check_health_error"].format(
+            status=e,
+        )
+        logger.error("Неожиданная ошибка при проверке здоровья: %s", e, exc_info=True)
+
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await back_to_server_kb(user_id, lang)).as_markup(),
+    )
+    await callback.answer()
+    logger.info(f"Пользователь {user_id} ({username}) выполнил проверку сервера")

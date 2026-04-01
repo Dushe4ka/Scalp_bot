@@ -269,9 +269,39 @@ async def profile_menu_kb_without_subscription(user_id: int, lang: str) -> Inlin
     kb.adjust(1)
     return kb
 
+async def profile_menu_wait_sub_confirmation_kb_with_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в профиле ожидания подтверждения подписки с подпиской
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["statistics"], callback_data="statistics")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["settings_profile"], callback_data="settings_profile")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading"], callback_data="trading")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading_portfolio"], callback_data="trading_portfolio")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["history_trades"], callback_data="history_trades")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
 async def profile_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Кнопки в профиле с подпиской
+    Кнопки в профиле с подпиской без ожидания подтверждения подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["statistics"], callback_data="statistics")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["settings_profile"], callback_data="settings_profile")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading"], callback_data="trading")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading_portfolio"], callback_data="trading_portfolio")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["history_trades"], callback_data="history_trades")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+async def profile_menu_wait_sub_confirmation_kb_without_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в профиле ожидания подтверждения подписки без подписки
     """
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
@@ -279,16 +309,36 @@ async def profile_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.adjust(1)
     return kb
 
-async def profile_menu_wait_sub_confirmation_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+async def profile_statistics_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
-    Кнопки в профиле ожидания подтверждения подписки
+    Кнопки в статистике профиля
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="profile_menu")
     kb.adjust(1)
     return kb
     
+async def profile_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в настройках профиля
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["edit_api_key_secret"], callback_data="profile_settings_api_key_secret")
+    kb.button(text=(await get_config_lang(lang))["profile_btn"]["edit_sum_for_trades"], callback_data="profile_settings_sum_for_trades")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="profile_menu")
+    kb.adjust(1)
+    return kb
+
+async def back_to_profile_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Возвращение в настройку профиля
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="settings_profile")
+    kb.adjust(1)
+    return kb
+
+
 # -------------------------------------------------------------
 # Admin keyboards
 # -------------------------------------------------------------
@@ -299,6 +349,8 @@ async def admin_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["users_list"], callback_data="users_list")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["statistics_project"], callback_data="statistics_project")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["server"], callback_data="server")
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
     kb.adjust(1)
     return kb
@@ -311,6 +363,34 @@ async def users_list_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["wait_confirm"], callback_data="wait_confirm")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["subscribers"], callback_data="subscribers")
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_menu")
+    kb.adjust(1)
+    return kb
+
+async def statistics_project_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в статистике проекта
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_menu")
+    kb.adjust(1)
+    return kb
+
+async def server_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в сервере
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["check_health"], callback_data="check_health")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_menu")
+    kb.adjust(1)
+    return kb
+
+async def back_to_server_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки при возврате в сервер
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="server")
     kb.adjust(1)
     return kb
 
