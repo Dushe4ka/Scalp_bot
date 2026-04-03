@@ -794,6 +794,60 @@ class UsersRepository:
             logger.error("Ошибка при обновлении sum_negative_trades tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении sum_negative_trades: {e}") from e
 
+    async def list_trading_candidates(self) -> list[dict[str, Any]]:
+        """
+        Возвращает пользователей с активной подпиской и полями для запуска торговли.
+        Фильтрация по ключам/stop_trading/sum_for_trades выполняется на уровне сервиса запуска.
+        """
+        logger.info("Получение кандидатов для автозапуска торговли")
+        try:
+            cursor = self._collection.find(
+                {"subscription_data.subscription": True},
+                {
+                    "_id": 0,
+                    "tg_id": 1,
+                    "name": 1,
+                    "subscription_data.subscription": 1,
+                    "bybit_data.api_key": 1,
+                    "bybit_data.api_secret": 1,
+                    "bybit_data.stop_trading": 1,
+                    "bybit_data.sum_for_trades": 1,
+                },
+            ).sort("tg_id", 1)
+            return await cursor.to_list(length=None)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_trading_candidates: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка получения кандидатов торговли: {e}") from e
+
+    async def apply_trade_statistics_delta(self, tg_id: int, pnl_usdt: float) -> None:
+        """
+        Обновляет агрегированную статистику пользователя после завершения сделки.
+        """
+        if not isinstance(pnl_usdt, (int, float)):
+            raise ValidationError("pnl_usdt должен быть числом")
+
+        inc_fields: dict[str, Any] = {
+            "statistics.total_trades": 1,
+            "statistics.total_pnl": float(pnl_usdt),
+        }
+        if pnl_usdt > 0:
+            inc_fields["statistics.positive_trades"] = 1
+            inc_fields["statistics.sum_positive_trades"] = float(pnl_usdt)
+        elif pnl_usdt < 0:
+            inc_fields["statistics.negative_trades"] = 1
+            inc_fields["statistics.sum_negative_trades"] = abs(float(pnl_usdt))
+
+        logger.info("Применение дельты статистики для tg_id=%s, pnl_usdt=%s", tg_id, pnl_usdt)
+        try:
+            r = await self._collection.update_one(
+                {"tg_id": tg_id},
+                {"$inc": inc_fields},
+            )
+            self._ensure_user_exists(r, tg_id)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка apply_trade_statistics_delta tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка обновления статистики сделки: {e}") from e
+
     # --- Готовые функции ---
 
     async def user_buy_subscription_30_days(self, tg_id: int) -> None:

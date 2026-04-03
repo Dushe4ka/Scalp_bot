@@ -5,6 +5,7 @@ from celery_app.tasks.short_3_limit import short_3_limit
 from bybit_logic.bybit_func import session, stop_trade, position
 from server_api.utils import validate_and_clean_symbol
 from config import USE_DEMO
+from users_repository import db
 
 router = APIRouter()
 logger = setup_logger(__name__)
@@ -22,12 +23,65 @@ async def short_3_limit_endpoint(request: Request):
         if not symbol:
             raise HTTPException(status_code=400, detail="Символ не может быть пустым")
         
-        task = short_3_limit.delay(symbol)
-        logger.info(f"🚀 Запущена задача для {symbol}, task_id: {task.id}")
+        users = await db.list_trading_candidates()
+        queued = 0
+        skipped_no_keys = 0
+        skipped_stop_trading = 0
+        skipped_invalid_sum = 0
+        task_ids: list[str] = []
+
+        for user in users:
+            bybit_data = user.get("bybit_data") or {}
+            api_key = (bybit_data.get("api_key") or "").strip()
+            api_secret = (bybit_data.get("api_secret") or "").strip()
+            stop_trading_flag = bybit_data.get("stop_trading") is True
+            sum_for_trades_raw = bybit_data.get("sum_for_trades")
+
+            if not api_key or not api_secret:
+                skipped_no_keys += 1
+                continue
+            if stop_trading_flag:
+                skipped_stop_trading += 1
+                continue
+
+            try:
+                sum_for_trades = float(sum_for_trades_raw)
+            except (TypeError, ValueError):
+                skipped_invalid_sum += 1
+                continue
+            if sum_for_trades <= 0:
+                skipped_invalid_sum += 1
+                continue
+
+            tg_id = int(user["tg_id"])
+            name = user.get("name", "")
+            task = short_3_limit.delay(
+                symbol=symbol,
+                tg_id=tg_id,
+                name=name,
+                api_key=api_key,
+                api_secret=api_secret,
+                sum_for_trades=sum_for_trades,
+            )
+            queued += 1
+            task_ids.append(task.id)
+
+        logger.info(
+            "🚀 short_3_limit enqueued for symbol=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s",
+            symbol,
+            queued,
+            skipped_no_keys,
+            skipped_stop_trading,
+            skipped_invalid_sum,
+        )
         return {
-            "task_id": task.id,
             "symbol": symbol,
-            "status": "started"
+            "status": "started",
+            "queued": queued,
+            "skipped_no_keys": skipped_no_keys,
+            "skipped_stop_trading": skipped_stop_trading,
+            "skipped_invalid_sum": skipped_invalid_sum,
+            "task_ids": task_ids,
         }
     except HTTPException:
         raise

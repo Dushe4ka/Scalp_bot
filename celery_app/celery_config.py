@@ -1,4 +1,5 @@
 from celery import Celery
+from kombu import Queue
 import os
 import sys
 from pathlib import Path
@@ -23,4 +24,9 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
+    task_default_queue="default",
+    task_queues=(
+        Queue("default"),
+        Queue("trade_user"),
+    ),
 )

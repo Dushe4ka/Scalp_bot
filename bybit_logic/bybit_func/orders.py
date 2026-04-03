@@ -1,7 +1,9 @@
 from pybit.unified_trading import HTTP
 from logger_config import setup_logger
 from bybit_logic.bybit_func import calculator
-from bybit_logic.bybit_func.market import get_qty_limits
+from bybit_logic.bybit_func.market import get_qty_limits, get_price_limits
+from bybit_logic.utils import frange
+import math
 
 logger = setup_logger(__name__)
 
@@ -52,6 +54,41 @@ def set_stop_loss(symbol, stop_loss_price, session: HTTP):
     except Exception as e:
         logger.error(f"Error setting stop loss: {e}")
         return None
+
+
+def _round_price_by_tick(price: float, tick_size: float, direction: str) -> float:
+    """Округляет цену по шагу tickSize в нужную сторону."""
+    if tick_size <= 0:
+        return price
+    if direction == "up":
+        return math.ceil(price / tick_size) * tick_size
+    return math.floor(price / tick_size) * tick_size
+
+
+def _normalize_stop_loss_price(
+    raw_price: float,
+    current_price: float,
+    position_side: str,
+    tick_size: float,
+) -> float:
+    """
+    Нормализует цену stopLoss с учетом ограничений биржи:
+    - округление по tickSize;
+    - для Sell stopLoss должен быть выше текущей цены;
+    - для Buy stopLoss должен быть ниже текущей цены.
+    """
+    side = (position_side or "").strip()
+    if side == "Sell":
+        normalized = _round_price_by_tick(raw_price, tick_size, "up")
+        if normalized <= current_price:
+            normalized = _round_price_by_tick(current_price + tick_size, tick_size, "up")
+        return normalized
+
+    # По умолчанию обрабатываем как Buy
+    normalized = _round_price_by_tick(raw_price, tick_size, "down")
+    if normalized >= current_price:
+        normalized = _round_price_by_tick(current_price - tick_size, tick_size, "down")
+    return normalized
 
 def place_n_limit_order(symbol, base_usdt_amount, side, base_price, session: HTTP, n: int, limit_percentage: float):
     """
@@ -189,3 +226,67 @@ def place_n_limit_order(symbol, base_usdt_amount, side, base_price, session: HTT
     except Exception as e:
         logger.error(f"❌ Критическая ошибка при размещении n лимитных ордеров: {e}")
         return None
+
+
+def set_stop_loss_with_breakeven_retries(
+    symbol: str,
+    current_price: float,
+    session: HTTP,
+    position_side: str,
+    *,
+    correction_percent_start: float = 0.5,
+    correction_percent_stop: float = 2.0,
+    correction_percent_step: float = 0.5,
+) -> tuple[bool, float | None, dict | None]:
+    """
+    Пытается выставить стоп-лосс (БУ): сначала на current_price, затем с отступами
+    correction_percent_start … correction_percent_stop с шагом correction_percent_step
+    (по умолчанию 0.5%, 1%, 1.5%, 2% через calculate_little_less_price).
+    Возвращает (успех, цена_на_которой_сработало, последний_ответ_API).
+    """
+    percents = frange(
+        correction_percent_start,
+        correction_percent_stop,
+        correction_percent_step,
+    )
+    prices_to_try: list[tuple[str, float]] = [("текущая цена", current_price)]
+    for pct in percents:
+        adjusted = calculator.calculate_little_less_price(
+            current_price, pct, position_side
+        )
+        prices_to_try.append((f"отступ {pct:g}%", adjusted))
+
+    try:
+        _, tick_size = get_price_limits(symbol, session)
+    except Exception as e:
+        logger.warning("Не удалось получить tickSize для %s: %s", symbol, e)
+        tick_size = 0.0
+
+    # После нормализации разные raw-цены могут стать одинаковыми.
+    seen_prices: set[float] = set()
+
+    last_result: dict | None = None
+    for label, raw_price in prices_to_try:
+        price = _normalize_stop_loss_price(raw_price, current_price, position_side, tick_size)
+        key = round(price, 12)
+        if key in seen_prices:
+            logger.debug("Пропускаю дубликат stopLoss после нормализации: %s", f"{price:.8g}")
+            continue
+        seen_prices.add(key)
+
+        logger.info(
+            "Попытка установки стоп-лосса (%s): %s (raw=%s, tick=%s)",
+            label,
+            f"{price:.8g}",
+            f"{raw_price:.8g}",
+            f"{tick_size:.8g}",
+        )
+        result = set_stop_loss(symbol, price, session)
+        last_result = result
+        if result and result.get("retCode") == 0:
+            logger.info("Стоп-лосс установлен на %s (%s)", f"{price:.8g}", label)
+            return True, price, result
+        err = result.get("retMsg", "Неизвестная ошибка") if result else "Нет ответа"
+        logger.warning("Стоп-лосс не принят (%s): %s", label, err)
+
+    return False, None, last_result

@@ -67,8 +67,9 @@ def handle_ticker_price(message):
 ═══════════════════════════════════════════════════════════════════════════════
 """
 from pybit.unified_trading import HTTP
-from bybit_logic.bybit_func import orders
+from bybit_logic.bybit_func import orders, market
 from logger_config import setup_logger
+import math
 
 logger = setup_logger(__name__)
 
@@ -111,7 +112,7 @@ class TrailingStop:
     """
     
     def __init__(self, symbol: str, session: HTTP, trigger_percentage: float = 1.0,
-                 position_side: str = "Buy", offset_percentage: float = 0.1):
+                 position_side: str = "Buy", offset_percentage: float = 0.4):
         """
         Создает объект трейлинг стопа
         
@@ -131,6 +132,9 @@ class TrailingStop:
         self.trigger_percentage = trigger_percentage
         self.position_side = position_side
         self.offset_percentage = offset_percentage
+        # Порядок попыток выставления stopLoss (fallback, если первый вариант отклонен API).
+        # Важно: начинаем с базового offset, затем пробуем более "широкие" варианты.
+        self.stop_loss_attempt_offsets = [self.offset_percentage, 0.4, 0.7]
         
         # Внутренние переменные состояния
         self.is_active = False  # Активирован ли трейлинг стоп
@@ -142,6 +146,94 @@ class TrailingStop:
             f"📊 Создан TrailingStop для {self.symbol} "
             f"(триггер: {trigger_percentage}%, сторона: {position_side})"
         )
+
+    def _round_price_by_tick(self, price: float, tick_size: float, direction: str) -> float:
+        """
+        Округляет цену по шагу тикета биржи.
+
+        Args:
+            price: Цена для округления
+            tick_size: Минимальный шаг цены инструмента
+            direction: "up" или "down"
+        """
+        if tick_size <= 0:
+            return price
+
+        if direction == "up":
+            return math.ceil(price / tick_size) * tick_size
+        return math.floor(price / tick_size) * tick_size
+
+    def _build_stop_price(self, current_price: float, offset: float, tick_size: float) -> float:
+        """
+        Формирует корректную цену stopLoss с учетом стороны позиции и tickSize.
+        """
+        if self.position_side == "Buy":
+            raw_stop = current_price * (100 - offset) / 100
+            target = self._round_price_by_tick(raw_stop, tick_size, "down")
+            # Гарантия: для Buy стоп должен быть ниже текущей цены
+            if target >= current_price:
+                target = self._round_price_by_tick(current_price - tick_size, tick_size, "down")
+            return target
+
+        # Sell
+        raw_stop = current_price * (100 + offset) / 100
+        target = self._round_price_by_tick(raw_stop, tick_size, "up")
+        # Гарантия: для Sell стоп должен быть выше текущей цены
+        if target <= current_price:
+            target = self._round_price_by_tick(current_price + tick_size, tick_size, "up")
+        return target
+
+    def _attempt_set_stop_with_offsets(self, current_price: float, offsets: list[float]) -> tuple[bool, float | None]:
+        """
+        Пробует установить stopLoss последовательно с разными offset.
+        Возвращает (успех, использованный_offset).
+        """
+        try:
+            _, tick_size = market.get_price_limits(self.symbol, self.session)
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось получить tickSize для {self.symbol}: {e}")
+            tick_size = 0.0
+
+        for off in offsets:
+            target_stop_price = self._build_stop_price(current_price, off, tick_size)
+
+            # Не двигаем стоп назад (бизнес-правило класса)
+            if self.position_side == "Buy":
+                if self.last_stop_price is not None and target_stop_price <= self.last_stop_price:
+                    logger.debug(
+                        f"⏭ Пропускаю попытку offset={off:.2f}%: новый стоп {target_stop_price:.8g} "
+                        f"не выше текущего {self.last_stop_price:.8g}"
+                    )
+                    continue
+            else:
+                if self.last_stop_price is not None and target_stop_price >= self.last_stop_price:
+                    logger.debug(
+                        f"⏭ Пропускаю попытку offset={off:.2f}%: новый стоп {target_stop_price:.8g} "
+                        f"не ниже текущего {self.last_stop_price:.8g}"
+                    )
+                    continue
+
+            logger.info(
+                f"📝 Пытаюсь обновить stopLoss для {self.symbol}: "
+                f"цена={current_price:.8g}, offset={off:.2f}%, stop={target_stop_price:.8g}"
+            )
+
+            result = orders.set_stop_loss(self.symbol, target_stop_price, self.session)
+            if result and result.get("retCode") == 0:
+                self.last_stop_price = target_stop_price
+                self.last_update_price = current_price
+                logger.info(
+                    f"✅ stopLoss обновлен: {target_stop_price:.8g} "
+                    f"(offset={off:.2f}%, текущая цена: {current_price:.8g})"
+                )
+                return True, off
+
+            error_msg = result.get("retMsg", "Нет ответа от сервера") if result else "Нет ответа от сервера"
+            logger.warning(
+                f"⚠️ Не удалось обновить stopLoss с offset={off:.2f}%: {error_msg}"
+            )
+
+        return False, None
     
     def activate(self, start_price: float):
         """
@@ -262,70 +354,26 @@ class TrailingStop:
         - Цена выросла до 103 (рост на 1% от последней точки)
         - Устанавливаем стоп на 102.9 (103 - 0.1% отступ)
         """
-        # Рассчитываем цену стоп-лосса на основе ТЕКУЩЕЙ цены
-        if self.position_side == "Buy":
-            # Для лонга: стоп-лосс чуть ниже текущей цены (защита от проскальзывания)
-            target_stop_price = current_price * (100 - self.offset_percentage) / 100
-            
-            # Дополнительная проверка безопасности: стоп должен быть ниже текущей цены
-            if target_stop_price >= current_price:
-                # Это не должно происходить, но на всякий случай корректируем
-                logger.warning(
-                    f"⚠️ Рассчитанный стоп-лосс {target_stop_price:.8g} должен быть ниже "
-                    f"текущей цены {current_price:.8g}. Корректирую..."
+        # Делаем несколько попыток с fallback offset, чтобы уменьшить процент отклонений API.
+        unique_offsets = []
+        for off in self.stop_loss_attempt_offsets:
+            if off not in unique_offsets:
+                unique_offsets.append(off)
+
+        success, used_offset = self._attempt_set_stop_with_offsets(current_price, unique_offsets)
+        if success:
+            if used_offset is not None and used_offset != self.offset_percentage:
+                logger.info(
+                    f"ℹ️ stopLoss обновлен через fallback offset={used_offset:.2f}% "
+                    f"(базовый offset={self.offset_percentage:.2f}%)"
                 )
-                target_stop_price = current_price * 0.999  # Еще немного ниже
-            
-            # Обновляем только если новый стоп выше предыдущего (не двигаем стоп назад)
-            if self.last_stop_price is not None and target_stop_price <= self.last_stop_price:
-                logger.debug(
-                    f"⏭ Пропускаю обновление: новый стоп {target_stop_price:.8g} не выше "
-                    f"текущего {self.last_stop_price:.8g}"
-                )
-                return False
-        
-        else:  # position_side == "Sell"
-            # Для шорта: стоп-лосс чуть выше текущей цены (защита от проскальзывания)
-            target_stop_price = current_price * (100 + self.offset_percentage) / 100
-            
-            # Дополнительная проверка безопасности: стоп должен быть выше текущей цены
-            if target_stop_price <= current_price:
-                # Это не должно происходить, но на всякий случай корректируем
-                logger.warning(
-                    f"⚠️ Рассчитанный стоп-лосс {target_stop_price:.8g} должен быть выше "
-                    f"текущей цены {current_price:.8g}. Корректирую..."
-                )
-                target_stop_price = current_price * 1.001  # Еще немного выше
-            
-            # Обновляем только если новый стоп ниже предыдущего (не двигаем стоп назад для шорта)
-            if self.last_stop_price is not None and target_stop_price >= self.last_stop_price:
-                logger.debug(
-                    f"⏭ Пропускаю обновление: новый стоп {target_stop_price:.8g} не ниже "
-                    f"текущего {self.last_stop_price:.8g}"
-                )
-                return False
-        
-        # Устанавливаем стоп-лосс через API
-        logger.info(
-            f"📝 Обновляю стоп-лосс для {self.symbol} до {target_stop_price:.8g} "
-            f"(текущая цена: {current_price:.8g})"
-        )
-        
-        result = orders.set_stop_loss(self.symbol, target_stop_price, self.session)
-        
-        if result and result.get('retCode') == 0:
-            self.last_stop_price = target_stop_price
-            self.last_update_price = current_price  # Обновляем базовую цену для следующего расчета
-            
-            logger.info(
-                f"✅ Стоп-лосс обновлен: {target_stop_price:.8g} "
-                f"(текущая цена: {current_price:.8g}, отступ: {self.offset_percentage:.2f}%)"
-            )
             return True
-        else:
-            error_msg = result.get('retMsg', 'Неизвестная ошибка') if result else 'Нет ответа от сервера'
-            logger.error(f"❌ Ошибка обновления стоп-лосса: {error_msg}")
-            return False
+
+        logger.error(
+            f"❌ Ошибка обновления стоп-лосса: все попытки неуспешны "
+            f"(offsets={unique_offsets})"
+        )
+        return False
     
     def get_status(self) -> dict:
         """

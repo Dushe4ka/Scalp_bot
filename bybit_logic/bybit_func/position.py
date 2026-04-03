@@ -211,3 +211,10 @@ def result_position_info(symbol: str, session: HTTP) -> Optional[str]:
         
     else:
         return "❌ Позиция не найдена"
+
+
+def result_position_info_data(symbol: str, session: HTTP) -> Optional[Dict[str, Any]]:
+    """
+    Возвращает структурированные данные по последней позиции.
+    """
+    return get_last_position_info(session, symbol)

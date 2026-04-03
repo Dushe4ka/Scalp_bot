@@ -5,7 +5,8 @@
 from bybit_logic.bybit_func import session, position, market, calculator, orders, stop_trade
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
-from celery_app.tasks.notifications import send_notification_task
+from celery_app.tasks.notifications import send_notification_task, send_notification_to_user_task
+from history_trades_repository import history_trades_db, build_trade_doc
 from logger_config import setup_logger
 import time
 import os
@@ -47,6 +48,42 @@ previous_position_size = None  # предыдущий размер позици�
 last_position_check_time = 0  # Время последней проверки позиции (в секундах)
 price_stream = None  # Объект для работы с WebSocket
 should_stop = False  # ✅ Флаг для остановки алгоритма
+trade_saved = False
+USER_TG_ID = None
+USER_NAME = ""
+USER_SUM_FOR_TRADES = 0.0 # USDT для логов и сообщений
+ALGORITHMS_SUM_FOR_TRADES = 0.0 # USDT подаваемое на байбит (дело в том что, когда приходит сумма указанная здесь, на байбите она в 10 раз меньше)
+LAST_CLOSED_POSITION_INFO = None
+
+
+def persist_closed_trade() -> dict | None:
+    global trade_saved, LAST_CLOSED_POSITION_INFO
+    if trade_saved:
+        return LAST_CLOSED_POSITION_INFO
+    if http_session is None or SYMBOL is None or USER_TG_ID is None:
+        return None
+    try:
+        position_info = position.result_position_info_data(SYMBOL, http_session)
+        if not position_info or position_info.get("is_open") is True:
+            return None
+        trade_doc = build_trade_doc(
+            tg_id=int(USER_TG_ID),
+            name=USER_NAME,
+            symbol=SYMBOL,
+            position_info=position_info,
+        )
+        history_trades_db.insert_closed_trade(trade_doc)
+        history_trades_db.apply_user_statistics_delta(
+            tg_id=int(USER_TG_ID),
+            pnl_usdt=float(position_info.get("pnl_usdt") or 0.0),
+        )
+        trade_saved = True
+        LAST_CLOSED_POSITION_INFO = position_info
+        logger.info("✅ История сделки сохранена и статистика обновлена: tg_id=%s symbol=%s", USER_TG_ID, SYMBOL)
+        return position_info
+    except Exception as e:
+        logger.error("❌ Ошибка сохранения history_trades/statistics: %s", e)
+        return None
 
 def price_trigger_callback() -> bool:
     """
@@ -81,7 +118,7 @@ def price_trigger_callback() -> bool:
         print(f"Прибыль/убыток (PnL): {pnl_sign}{pnl_usdt:.2f} USDT")
 
     # ============================================
-    # УСТАНОВКА БУ (безубыток): централизованно через orders
+    # УСТАНОВКА БУ (безубыток): текущая цена, затем отступы 0.5% … 2% шагом 0.5%
     # ============================================
     bu_success, bu_price, _ = orders.set_stop_loss_with_breakeven_retries(
         SYMBOL,
@@ -93,24 +130,27 @@ def price_trigger_callback() -> bool:
         correction_percent_step=0.5,
     )
     if bu_success and bu_price is not None:
-        logger.info(f"✅ БУ (безубыток) успешно установлен на {bu_price:.8g}")
         print(f"✅ БУ установлен на {bu_price:.8g}")
     else:
-        logger.error("❌ Не удалось установить БУ после всех попыток")
         print("❌ Не удалось установить БУ после всех попыток")
-        return False
 
     # ============================================
     # АКТИВАЦИЯ ТРЕЙЛИНГ СТОПА (ТОЛЬКО ЕСЛИ БУ УСПЕШНО УСТАНОВЛЕН)
     # ============================================
+    if not bu_success:
+        # БУ не поставился: трейлинг стоп НЕ активируем.
+        return False
+
     if trailing_stop is None:
+        # По логике алгоритма trailing_stop должен быть создан до запуска,
+        # но если вдруг нет — считаем БУ успешным, а трейлинг стоп не запускаем.
         logger.error("❌ Объект трейлинг стопа не создан!")
         print("❌ Ошибка: трейлинг стоп не создан!")
         return True
 
     trailing_stop.activate(current_price)  # Активируем трейлинг стоп на текущей цене
     logger.info(f"🟢 Трейлинг стоп активирован на цене {current_price:.8g} (БУ установлен)")
-    print("🟢 Трейлинг стоп активирован!")
+    print(f"🟢 Трейлинг стоп активирован!")
 
     # КРИТИЧНО: Если прибыль уже больше TRIGGER_PERCENTAGE_INITIAL_TS,
     # сразу устанавливаем первый стоп трейлинг стопа на текущей прибыли
@@ -119,13 +159,17 @@ def price_trigger_callback() -> bool:
         logger.info(f"💰 Прибыль уже {price_change_percent:.2f}% (больше целевого {TRIGGER_PERCENTAGE}%)")
         logger.info(f"📝 Сразу устанавливаю первый стоп трейлинг стопа на текущей цене...")
         if trailing_stop.set_initial_stop(current_price):
-            logger.info(f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%")
-            print("✅ Первый стоп трейлинг стопа установлен!")
+            logger.info(
+                f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%"
+            )
+            print(f"✅ Первый стоп трейлинг стопа установлен!")
         else:
             logger.warning("⚠️ Не удалось установить начальный стоп, он установится при следующем росте")
     else:
-        logger.info(f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%")
-
+        logger.info(
+            f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%"
+        )
+    
     print("=" * 50)
     return True
 
@@ -179,19 +223,25 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
                 price_stream.stop()
             should_stop = True  # ✅ Устанавливаем флаг остановки
 
-            # ------------------------------------------
-            # Отправка уведомления подписчикам
-            # ------------------------------------------
-            pnl_sign = "+" if pnl_usdt >= 0 else ""
+            closed_info = persist_closed_trade()
+            info = closed_info or {}
+            info_pnl = float(info.get("pnl_usdt") or 0.0)
+            info_entry = float(info.get("entry_price") or 0.0)
+            info_exit = float(info.get("exit_price") or 0.0)
+            info_symbol = str(info.get("symbol") or SYMBOL)
+            info_side = "Лонг" if info.get("side") == "Buy" else "Шорт"
+            pnl_sign = "+" if info_pnl >= 0 else ""
             notification_text = (
                 f"🔄 Позиция закрыта\n\n"
-                f"📊 Символ: {SYMBOL}\n"
-                f"💰 Цена входа: {entry_price:.8g}\n"
-                f"💵 Финальный PnL: {pnl_sign}{pnl_usdt:.2f} USDT\n"
-                f"📊 Изменение: {price_change_percent:.2f}%"
+                f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})\n"
+                f"📊 Символ: {info_symbol}\n"
+                f"📈 Сторона: {info_side}\n"
+                f"💰 Цена входа: {info_entry:.8g}\n"
+                f"💸 Цена выхода: {info_exit:.8g}\n"
+                f"💵 Финальный PnL: {pnl_sign}{info_pnl:.2f} USDT"
             )
-            send_notification_task.delay(notification_text)
-            logger.info(f"✅ Уведомление отправлено подписчикам о закрытии позиции")
+            send_notification_to_user_task.delay(USER_TG_ID, notification_text)
+            logger.info("✅ Персональное уведомление отправлено пользователю tg_id=%s", USER_TG_ID)
 
             return False
         
@@ -351,7 +401,14 @@ def handle_ticker_price(message):
         logger.error(f"Ошибка при обработке обновления цены: {e}")
 
 
-def start_trading(symbol: str):
+def start_trading(
+    symbol: str,
+    tg_id: int,
+    name: str,
+    api_key: str,
+    api_secret: str,
+    sum_for_trades: float,
+):
     """
     Главная функция - выполняет всю работу:
     1. Открывает позицию
@@ -361,7 +418,8 @@ def start_trading(symbol: str):
     global entry_price, position_qty, position_opened, http_session, price_stream
     global previous_avg_price, previous_position_size, last_position_check_time
     global SYMBOL, should_stop, trigger_called, current_price, price_change_percent
-    global pnl_usdt, last_log_time, trailing_stop
+    global pnl_usdt, last_log_time, trailing_stop, trade_saved
+    global USER_TG_ID, USER_NAME, USER_SUM_FOR_TRADES, LAST_CLOSED_POSITION_INFO, ALGORITHMS_SUM_FOR_TRADES
 
     # Сбрасываем все переменные состояния
     SYMBOL = None
@@ -380,6 +438,12 @@ def start_trading(symbol: str):
     last_position_check_time = 0
     price_stream = None
     should_stop = False
+    trade_saved = False
+    LAST_CLOSED_POSITION_INFO = None
+    USER_TG_ID = int(tg_id)
+    USER_NAME = name
+    USER_SUM_FOR_TRADES = float(sum_for_trades)
+    ALGORITHMS_SUM_FOR_TRADES = USER_SUM_FOR_TRADES * 10
     
     SYMBOL = symbol.upper()
     
@@ -389,8 +453,9 @@ def start_trading(symbol: str):
     logger.info("=" * 50)
     logger.info("🚀 Запуск мониторинга цены с автоматическим открытием позиции")
     logger.info("=" * 50)
+    logger.info(f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})")
     logger.info(f"📊 Символ: {SYMBOL}")
-    logger.info(f"💰 Сумма: {USDT_AMOUNT} USDT")
+    logger.info(f"💰 Сумма: {USER_SUM_FOR_TRADES} USDT")
     logger.info(f"📈 Сторона: {POSITION_SIDE} ({'Покупка' if POSITION_SIDE == 'Buy' else 'Продажа'})")
     logger.info(f"🎯 Целевой процент: {TRIGGER_PERCENTAGE}%")
     logger.info(f"⏱️  Интервал логирования PnL: {PNL_LOG_INTERVAL} секунд")
@@ -400,7 +465,11 @@ def start_trading(symbol: str):
     # ШАГ 2: ПОДКЛЮЧЕНИЕ К БИРЖЕ 
     # ============================================
     logger.info("🔌 Подключаюсь к бирже Bybit...")
-    http_session = session.create_session(use_demo=USE_DEMO)
+    http_session = session.create_session(
+        use_demo=USE_DEMO,
+        api_key=api_key,
+        api_secret=api_secret,
+    )
     logger.info("✅ Подключение установлено")
 
     # ============================================
@@ -414,6 +483,7 @@ def start_trading(symbol: str):
         # Отправка уведомления подписчикам
         notification_text = (
             f"⚠️ Дубликат отфильтрован\n\n"
+            f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})\n"
             f"📊 Символ: {SYMBOL}\n"
             f"ℹ️ По этой монете уже ведется торговля"
         )
@@ -444,8 +514,8 @@ def start_trading(symbol: str):
     # ============================================
     # ШАГ 4: РАСЧЕТ КОЛИЧЕСТВА МОНЕТ
     # ============================================
-    logger.info(f"🧮 Рассчитываю количество монет для суммы {USDT_AMOUNT} USDT...")
-    qty = calculator.calculate_qty(SYMBOL, USDT_AMOUNT, http_session)
+    logger.info(f"🧮 Рассчитываю количество монет для суммы {USER_SUM_FOR_TRADES} (* 10) USDT...")
+    qty = calculator.calculate_qty(SYMBOL, ALGORITHMS_SUM_FOR_TRADES, http_session)
     logger.info(f"✅ Рассчитанное количество: {qty} {SYMBOL}")
     
     # ============================================
@@ -463,8 +533,9 @@ def start_trading(symbol: str):
         # ------------------------------------------
         notification_text = (
         f"🚀 Алгоритм запущен!\n\n"
+        f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})\n"
         f"📊 Символ: {SYMBOL}\n"
-        f"💰 Сумма: {USDT_AMOUNT} USDT\n"
+        f"💰 Сумма: {USER_SUM_FOR_TRADES} USDT\n"
         f"📈 Сторона: {POSITION_SIDE}\n"
         )
         send_notification_task.delay(notification_text)
@@ -515,7 +586,15 @@ def start_trading(symbol: str):
         return
 
     logger.info(f"📝 Устанавливаю {COUNT_LIMIT_ORDERS} лимитных ордеров на {SYMBOL}...")
-    place_n_limit_order = orders.place_n_limit_order(SYMBOL, USDT_AMOUNT, POSITION_SIDE, entry_price, http_session, COUNT_LIMIT_ORDERS, LIMIT_PERCENTAGE)
+    place_n_limit_order = orders.place_n_limit_order(
+        SYMBOL,
+        ALGORITHMS_SUM_FOR_TRADES,
+        POSITION_SIDE,
+        entry_price,
+        http_session,
+        COUNT_LIMIT_ORDERS,
+        LIMIT_PERCENTAGE,
+    )
 
     # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА: place_n_limit_order - это СПИСОК!
     if place_n_limit_order is None:
