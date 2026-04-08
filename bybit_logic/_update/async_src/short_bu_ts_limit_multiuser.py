@@ -38,6 +38,7 @@ STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE"))
 POSITION_SIDE = os.getenv("POSITION_SIDE")
 USE_DEMO = False
+LEVERAGE = 10
 COUNT_LIMIT_ORDERS = int(os.getenv("COUNT_LIMIT_ORDERS"))
 LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
@@ -121,6 +122,9 @@ class BybitHttpAdapter:
 
     async def if_position_open(self, http_session, symbol: str) -> bool:
         return bool(await asyncio.to_thread(position.if_position_open, http_session, symbol))
+
+    async def set_leverage(self, http_session, symbol: str, leverage: int = 10) -> bool:
+        return bool(await asyncio.to_thread(position.set_leverage, http_session, symbol, leverage))
 
     async def get_ticker_price(self, http_session, symbol: str) -> float:
         tickers = await asyncio.to_thread(market.get_tickers_by_symbol, http_session, symbol)
@@ -276,6 +280,11 @@ class TradeSession:
         s.started = True
         s.updated_at = time.time()
         self.http_session = await self.adapter.create_session(s.api_key, s.api_secret)
+
+        if not await self.adapter.set_leverage(self.http_session, s.symbol, LEVERAGE):
+            logger.error("❌ Не удалось установить кредитное плечо %sx trade_id=%s symbol=%s", LEVERAGE, s.trade_id, s.symbol)
+            s.should_stop = True
+            return
 
         if await self.adapter.if_position_open(self.http_session, s.symbol):
             send_notification_task.delay(

@@ -26,6 +26,7 @@ STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE"))
 POSITION_SIDE = os.getenv("POSITION_SIDE")
 USE_DEMO = False
+LEVERAGE = 10
 COUNT_LIMIT_ORDERS = int(os.getenv("COUNT_LIMIT_ORDERS"))
 LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
@@ -471,6 +472,12 @@ def start_trading(
         api_secret=api_secret,
     )
     logger.info("✅ Подключение установлено")
+
+    logger.info(f"⚙️ Устанавливаю кредитное плечо {LEVERAGE}x для {SYMBOL}...")
+    if not position.set_leverage(http_session, SYMBOL, LEVERAGE):
+        logger.error(f"❌ Не удалось установить кредитное плечо {LEVERAGE}x. Остановка алгоритма.")
+        return
+    logger.info(f"✅ Кредитное плечо {LEVERAGE}x установлено")
 
     # ============================================
     # ШАГ 2.1: ПРОВЕРКА НАЛИЧИЯ ОТКРЫТОЙ ПОЗИЦИИ И СОЗДАНИЕ ОБЪЕКТА ТРЕЙЛИНГ СТОПА
