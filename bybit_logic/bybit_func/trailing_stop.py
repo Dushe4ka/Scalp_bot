@@ -111,8 +111,15 @@ class TrailingStop:
             print(f"Трейлинг стоп активен, последний стоп: {trailing.last_stop_price}")
     """
     
-    def __init__(self, symbol: str, session: HTTP, trigger_percentage: float = 1.0,
-                 position_side: str = "Buy", offset_percentage: float = 0.4):
+    def __init__(
+        self,
+        symbol: str,
+        session: HTTP,
+        trigger_percentage: float = 1.0,
+        position_side: str = "Buy",
+        offset_percentage: float = 0.4,
+        position_idx: int | None = None,
+    ):
         """
         Создает объект трейлинг стопа
         
@@ -123,6 +130,7 @@ class TrailingStop:
             position_side: Сторона позиции - "Buy" (лонг) или "Sell" (шорт)
             offset_percentage: Небольшой отступ от текущей цены для защиты от проскальзывания (по умолчанию 0.1%)
                               При установке стопа он будет на эту величину ниже/выше текущей цены
+            position_idx: Для linear hedge (Bybit V5): 1 — нога Buy, 2 — нога Sell. None — one-way / без указания.
         
         Пример:
             trailing = TrailingStop("BTCUSDT", http_session, trigger_percentage=1.0)
@@ -132,6 +140,7 @@ class TrailingStop:
         self.trigger_percentage = trigger_percentage
         self.position_side = position_side
         self.offset_percentage = offset_percentage
+        self.position_idx = position_idx
         # Порядок попыток выставления stopLoss (fallback, если первый вариант отклонен API).
         # Важно: начинаем с базового offset, затем пробуем более "широкие" варианты.
         self.stop_loss_attempt_offsets = [self.offset_percentage, 0.4, 0.7]
@@ -218,7 +227,12 @@ class TrailingStop:
                 f"цена={current_price:.8g}, offset={off:.2f}%, stop={target_stop_price:.8g}"
             )
 
-            result = orders.set_stop_loss(self.symbol, target_stop_price, self.session)
+            result = orders.set_stop_loss(
+                self.symbol,
+                target_stop_price,
+                self.session,
+                position_idx=self.position_idx,
+            )
             if result and result.get("retCode") == 0:
                 self.last_stop_price = target_stop_price
                 self.last_update_price = current_price
@@ -393,7 +407,8 @@ class TrailingStop:
             'last_stop_price': self.last_stop_price,
             'highest_price': self.highest_price,
             'trigger_percentage': self.trigger_percentage,
-            'position_side': self.position_side
+            'position_side': self.position_side,
+            'position_idx': self.position_idx,
         }
 
     def set_initial_stop(self, current_price: float) -> bool:

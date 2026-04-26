@@ -7,17 +7,32 @@ import math
 
 logger = setup_logger(__name__)
 
-def place_order(symbol, qty, side, order_type, session: HTTP):
+def place_order(
+    symbol,
+    qty,
+    side,
+    order_type,
+    session: HTTP,
+    *,
+    position_idx: int | None = None,
+    reduce_only: bool = False,
+):
     try:
-        return session.place_order(
-            category="linear",
-            symbol=symbol.upper(),
-            side=side,
-            orderType=order_type,
-            qty=qty
-            )
+        kwargs: dict = {
+            "category": "linear",
+            "symbol": symbol.upper(),
+            "side": side,
+            "orderType": order_type,
+            "qty": qty,
+        }
+        if position_idx is not None:
+            kwargs["positionIdx"] = position_idx
+        if reduce_only:
+            kwargs["reduceOnly"] = True
+        logger.info("place_order request: %s", kwargs)
+        return session.place_order(**kwargs)
     except Exception as e:
-        logger.error(f"Error placing order: {e}")
+        logger.exception("Error placing order (%s %s): %s", symbol, side, e)
         return None
 
 def place_limit_order(symbol, qty, side, price, session: HTTP):
@@ -44,13 +59,22 @@ def get_open_orders_by_symbol(symbol, session: HTTP):
         logger.error(f"Error getting open orders: {e}")
         return None
 
-def set_stop_loss(symbol, stop_loss_price, session: HTTP):
+def set_stop_loss(
+    symbol,
+    stop_loss_price,
+    session: HTTP,
+    *,
+    position_idx: int | None = None,
+):
     try:
-        return session.set_trading_stop(
-            category="linear",
-            symbol=symbol.upper(),
-            stopLoss=str(stop_loss_price),
-        )
+        kwargs: dict = {
+            "category": "linear",
+            "symbol": symbol.upper(),
+            "stopLoss": str(stop_loss_price),
+        }
+        if position_idx is not None:
+            kwargs["positionIdx"] = position_idx
+        return session.set_trading_stop(**kwargs)
     except Exception as e:
         logger.error(f"Error setting stop loss: {e}")
         return None
@@ -237,6 +261,7 @@ def set_stop_loss_with_breakeven_retries(
     correction_percent_start: float = 0.5,
     correction_percent_stop: float = 2.0,
     correction_percent_step: float = 0.5,
+    position_idx: int | None = None,
 ) -> tuple[bool, float | None, dict | None]:
     """
     Пытается выставить стоп-лосс (БУ): сначала на current_price, затем с отступами
@@ -281,7 +306,7 @@ def set_stop_loss_with_breakeven_retries(
             f"{raw_price:.8g}",
             f"{tick_size:.8g}",
         )
-        result = set_stop_loss(symbol, price, session)
+        result = set_stop_loss(symbol, price, session, position_idx=position_idx)
         last_result = result
         if result and result.get("retCode") == 0:
             logger.info("Стоп-лосс установлен на %s (%s)", f"{price:.8g}", label)

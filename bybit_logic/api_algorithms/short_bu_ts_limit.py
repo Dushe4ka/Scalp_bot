@@ -47,6 +47,9 @@ previous_position_size = None  # предыдущий размер позици�
 last_position_check_time = 0  # Время последней проверки позиции (в секундах)
 price_stream = None  # Объект для работы с WebSocket
 should_stop = False  # ✅ Флаг для остановки алгоритма
+# Уведомление о финале: True после рассылки о закрытии позиции или общего финала
+completion_notified = False
+monitoring_active = False  # True после успешного входа, перед run_forever WebSocket
 
 def price_trigger_callback() -> bool:
     """
@@ -149,7 +152,8 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
             logger.info("Позиция изменилась!")
     """
     global entry_price, position_qty, previous_avg_price, previous_position_size
-    global last_position_check_time, http_session, SYMBOL, should_stop  # ✅ Добавляем should_stop
+    global last_position_check_time, http_session, SYMBOL, should_stop
+    global completion_notified
     
     current_timestamp = time.time()
     
@@ -191,6 +195,7 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
                 f"📊 Изменение: {price_change_percent:.2f}%"
             )
             send_notification_task.delay(notification_text)
+            completion_notified = True
             logger.info(f"✅ Уведомление отправлено подписчикам о закрытии позиции")
 
             return False
@@ -362,6 +367,7 @@ def start_trading(symbol: str):
     global previous_avg_price, previous_position_size, last_position_check_time
     global SYMBOL, should_stop, trigger_called, current_price, price_change_percent
     global pnl_usdt, last_log_time, trailing_stop
+    global completion_notified, monitoring_active
 
     # Сбрасываем все переменные состояния
     SYMBOL = None
@@ -380,7 +386,9 @@ def start_trading(symbol: str):
     last_position_check_time = 0
     price_stream = None
     should_stop = False
-    
+    completion_notified = False
+    monitoring_active = False
+
     SYMBOL = symbol.upper()
     
     # ============================================
@@ -547,23 +555,40 @@ def start_trading(symbol: str):
         price_handler=handle_ticker_price,
         testnet=False
     )
-    
+
     logger.info(f"⏳ Ожидание изменения цены на {TRIGGER_PERCENTAGE}%...")
     logger.info(f"📊 PnL будет выводиться каждые {PNL_LOG_INTERVAL} секунд")
     logger.info("")
     logger.info("💡 Нажмите Ctrl+C для остановки")
     logger.info("=" * 50)
-    
-    # Запускаем мониторинг
+
+    monitoring_active = True
+    exit_reason = "мониторинг остановлен"
     try:
         price_stream.run_forever()
     except KeyboardInterrupt:
         logger.info("🛑 Получен сигнал остановки (Ctrl+C)")
+        exit_reason = "прервано (Ctrl+C)"
     except Exception as e:
         logger.error(f"❌ Ошибка в WebSocket: {e}")
+        exit_reason = f"ошибка WebSocket: {e}"
     finally:
-        # ✅ Проверяем флаг остановки
+        if monitoring_active and not completion_notified and SYMBOL:
+            pnl_sign = "+" if pnl_usdt >= 0 else ""
+            ep = entry_price if entry_price is not None else 0.0
+            summary = (
+                f"🏁 Short BU TS limit завершён\n\n"
+                f"📊 Символ: {SYMBOL}\n"
+                f"📌 Причина: {exit_reason}\n"
+                f"💰 Цена входа: {ep:.8g}\n"
+                f"💵 PnL: {pnl_sign}{pnl_usdt:.2f} USDT\n"
+                f"📊 Изменение от входа: {price_change_percent:.2f}%"
+            )
+            try:
+                send_notification_task.delay(summary)
+                logger.info("Уведомление подписчикам: завершение сессии (без дубля с закрытием позиции)")
+            except Exception as notify_err:
+                logger.error("Не удалось отправить финальное уведомление: %s", notify_err)
         if should_stop:
             logger.info("🛑 Алгоритм остановлен по флагу should_stop")
-            return
         logger.info("✅ Функция start_trading завершена")

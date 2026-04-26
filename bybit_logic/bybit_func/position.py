@@ -218,3 +218,95 @@ def result_position_info_data(symbol: str, session: HTTP) -> Optional[Dict[str, 
     Возвращает структурированные данные по последней позиции.
     """
     return get_last_position_info(session, symbol)
+
+def switch_position_mode(session: HTTP, symbol: str, position_mode: int = 3) -> None:
+    """
+    Переключает режим позиции в режим хеджирования
+    """
+    try:
+        symbol = symbol.upper()
+        session.switch_position_mode(
+            category="linear",
+            symbol=symbol,
+            # Bybit V5 ожидает ключ mode (0 = one-way, 3 = hedge mode).
+            mode=position_mode,
+        )
+    except Exception as e:
+        error_text = str(e)
+        # Bybit: 110025 = Position mode is not modified (режим уже установлен).
+        if "110025" in error_text or "position mode is not modified" in error_text.lower():
+            logger.info("Режим позиции для %s уже установлен (mode=%s), продолжаю", symbol, position_mode)
+            return
+        logger.error(f"Ошибка при переключении режима позиции: {e}")
+        raise Exception(f"Ошибка при переключении режима позиции: {e}") from e
+
+def set_leverage(session: HTTP, symbol: str, category: str = "linear", buy_leverage: int = 10, sell_leverage: int = 10) -> None:
+    """
+    Устанавливает кредитное плечо
+    """
+    try:
+        symbol = symbol.upper()
+        max_lev = get_max_leverage(session, symbol, category=category)
+        final_buy = float(buy_leverage)
+        final_sell = float(sell_leverage)
+
+        # Если удалось получить биржевой лимит — не превышаем его
+        if max_lev is not None:
+            if final_buy > max_lev or final_sell > max_lev:
+                logger.warning(
+                    "Запрошенное плечо для %s превышает maxLeverage=%s, ограничиваю до лимита",
+                    symbol,
+                    max_lev,
+                )
+            final_buy = min(final_buy, max_lev)
+            final_sell = min(final_sell, max_lev)
+
+        session.set_leverage(
+            category=category,
+            symbol=symbol,
+            # Bybit V5 + pybit ожидают camelCase-ключи и строковые значения.
+            buyLeverage=str(final_buy),
+            sellLeverage=str(final_sell),
+        )
+    except Exception as e:
+        error_text = str(e)
+        # Bybit: ErrCode 110043 = leverage not modified (значение уже установлено).
+        if "110043" in error_text or "leverage not modified" in error_text.lower():
+            logger.info(
+                "Плечо для %s уже установлено (buy=%s, sell=%s), продолжаю без ошибки",
+                symbol,
+                str(final_buy),
+                str(final_sell),
+            )
+            return
+        logger.error(f"Ошибка при установке кредитного плеча: {e}")
+        raise Exception(f"Ошибка при установке кредитного плеча: {e}") from e
+
+
+def get_max_leverage(session: HTTP, symbol: str, category: str = "linear") -> Optional[float]:
+    """
+    Возвращает максимально допустимое плечо для инструмента.
+
+    Bybit V5: /v5/market/instruments-info -> leverageFilter.maxLeverage
+    """
+    try:
+        symbol = symbol.upper()
+        data = session.get_instruments_info(
+            category=category,
+            symbol=symbol,
+        )
+        instruments = data.get("result", {}).get("list", [])
+        if not instruments:
+            logger.warning("Инструмент не найден для maxLeverage: %s", symbol)
+            return None
+
+        leverage_filter = instruments[0].get("leverageFilter") or {}
+        max_leverage_raw = leverage_filter.get("maxLeverage")
+        if max_leverage_raw is None:
+            logger.warning("В ответе нет leverageFilter.maxLeverage для %s", symbol)
+            return None
+
+        return float(max_leverage_raw)
+    except Exception as e:
+        logger.error("Ошибка при получении maxLeverage для %s: %s", symbol, e)
+        return None

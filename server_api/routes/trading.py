@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Request
 from server_api.schemas import SymbolRequest
 from logger_config import setup_logger
 from celery_app.tasks.short_3_limit import short_3_limit
+from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
+from celery_app.tasks.short_bu_ts_limit_nomulti import nomulti_short_bu_ts_limit_task
 from bybit_logic.bybit_func import session, stop_trade, position
 from server_api.utils import validate_and_clean_symbol
 from config import USE_DEMO
@@ -88,6 +90,55 @@ async def short_3_limit_endpoint(request: Request):
     except Exception as e:
         logger.error(f"❌ Ошибка запуска задачи: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/nomulti_short_bu_ts_limit")
+async def nomulti_short_bu_ts_limit_endpoint(request: Request):
+    """Запуск немультюзерного short_bu_ts_limit по символу (одна Celery-задача)."""
+    try:
+        body = await request.body()
+        symbol = body.decode("utf-8").strip().upper()
+        symbol = validate_and_clean_symbol(symbol)
+        logger.info("nomulti_short_bu_ts_limit: символ после валидации: %s", symbol)
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Символ не может быть пустым")
+
+        task = nomulti_short_bu_ts_limit_task.delay(symbol=symbol)
+        return {
+            "symbol": symbol,
+            "status": "started",
+            "task_id": task.id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Ошибка постановки nomulti_short_bu_ts_limit: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/hedge_long_short_bu_ts")
+async def hedge_long_short_bu_ts_endpoint(request: Request):
+    """Запуск немультюзерного hedge long+short по символу (одна Celery-задача, ключи из config)."""
+    try:
+        body = await request.body()
+        symbol = body.decode("utf-8").strip().upper()
+        symbol = validate_and_clean_symbol(symbol)
+        logger.info("hedge_long_short_bu_ts: символ после валидации: %s", symbol)
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Символ не может быть пустым")
+
+        task = hedge_long_short_bu_ts_task.delay(symbol=symbol)
+        return {
+            "symbol": symbol,
+            "status": "started",
+            "task_id": task.id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Ошибка постановки hedge_long_short_bu_ts: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/stop_trading_by_symbol")
 async def stop_trading_by_symbol_endpoint(request: SymbolRequest):

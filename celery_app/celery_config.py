@@ -14,6 +14,8 @@ celery_app = Celery(
 celery_app.conf.update(
     imports=[
         'celery_app.tasks.short_3_limit',
+        'celery_app.tasks.short_bu_ts_limit_nomulti',
+        'celery_app.tasks.hedge_long_short_bu_ts',
         'celery_app.tasks.notifications',
     ],
     task_serializer='json',
