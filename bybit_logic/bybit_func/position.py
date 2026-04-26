@@ -57,6 +57,35 @@ def if_position_open(session: HTTP, symbol: str) -> bool:
         else:
             return False
 
+
+def set_leverage(session: HTTP, symbol: str, leverage: int = 10) -> bool:
+    """
+    Устанавливает кредитное плечо для линейного контракта.
+
+    По документации Bybit V5 и pybit:
+    - category="linear"
+    - buyLeverage / sellLeverage передаются строками
+    - в one-way режиме значения должны быть одинаковыми
+    """
+    try:
+        symbol = symbol.upper()
+        leverage_value = str(int(leverage))
+        response = session.set_leverage(
+            category="linear",
+            symbol=symbol,
+            buyLeverage=leverage_value,
+            sellLeverage=leverage_value,
+        )
+        if response and response.get("retCode") == 0:
+            logger.info("✅ Плечо установлено: %sx для %s", leverage_value, symbol)
+            return True
+
+        logger.error("❌ Не удалось установить плечо %sx для %s: %s", leverage_value, symbol, response)
+        return False
+    except Exception as e:
+        logger.error("❌ Ошибка установки плеча для %s: %s", symbol, e)
+        return False
+
 def get_last_position_info(session: HTTP, symbol: str) -> Optional[Dict[str, Any]]:
     """
     Получает информацию о последней позиции (открытой или закрытой) для указанного символа
