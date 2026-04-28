@@ -349,6 +349,12 @@ def start_trading(symbol: str) -> None:
 
     _try_switch_hedge(SYMBOL)
     try:
+        position.set_isolated_margin(
+            http_session,
+            SYMBOL,
+            buy_leverage=LEVERAGE,
+            sell_leverage=LEVERAGE,
+        )
         position.set_leverage(
             http_session,
             SYMBOL,
@@ -356,8 +362,8 @@ def start_trading(symbol: str) -> None:
             sell_leverage=LEVERAGE,
         )
     except Exception as e:
-        logger.error("set_leverage: %s", e)
-        send_notification_task.delay(f"❌ Hedge {SYMBOL}: плечо не установлено: {e}")
+        logger.error("set_isolated_margin/set_leverage: %s", e)
+        send_notification_task.delay(f"❌ Hedge {SYMBOL}: не удалось подготовить маржу/плечо: {e}")
         return
 
     qty = calculator.calculate_qty(SYMBOL, USDT_AMOUNT, http_session)

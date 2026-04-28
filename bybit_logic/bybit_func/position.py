@@ -312,6 +312,46 @@ def set_leverage(session: HTTP, symbol: str, category: str = "linear", buy_lever
         raise Exception(f"Ошибка при установке кредитного плеча: {e}") from e
 
 
+def set_isolated_margin(
+    session: HTTP,
+    symbol: str,
+    category: str = "linear",
+    buy_leverage: int = 10,
+    sell_leverage: int = 10,
+) -> None:
+    """
+    Включает изолированную маржу для Unified Trading Account (UTA).
+
+    На UTA режим cross/isolated задаётся на уровне **всего аккаунта**, а не через
+    ``/v5/position/switch-isolated`` (``switch_margin_mode``) по символу — для UTA
+    эта ручка даёт ErrCode 100028 «unified account is forbidden».
+
+    Рабочий путь: ``POST /v5/account/set-margin-mode`` с ``setMarginMode=ISOLATED_MARGIN``
+    (в pybit: ``session.set_margin_mode``). Параметры ``category`` / ``buy_leverage`` /
+    ``sell_leverage`` оставлены в сигнатуре для совместимости вызовов; плечо после
+    переключения режима задаётся отдельно через ``set_leverage``.
+
+    Документация: https://bybit-exchange.github.io/docs/v5/account/set-margin-mode
+    """
+    try:
+        symbol = symbol.upper()
+        info = session.get_account_info()
+        if info.get("retCode") != 0:
+            raise Exception(f"get_account_info: {info}")
+
+        margin_mode = (info.get("result") or {}).get("marginMode")
+        if margin_mode == "ISOLATED_MARGIN":
+            logger.info("Аккаунт уже в ISOLATED_MARGIN (%s), пропуск set-margin-mode", symbol)
+            return
+
+        # При ошибке pybit выбросит InvalidRequestError (текст от Bybit, часто с reasons в теле ответа в сообщении).
+        session.set_margin_mode(setMarginMode="ISOLATED_MARGIN")
+        logger.info("✅ Аккаунт переведён в ISOLATED_MARGIN (символ в контексте: %s)", symbol)
+    except Exception as e:
+        logger.error("Ошибка при переключении в isolated margin для %s: %s", symbol, e)
+        raise Exception(f"Ошибка при переключении в isolated margin для {symbol}: {e}") from e
+
+
 def get_max_leverage(session: HTTP, symbol: str, category: str = "linear") -> Optional[float]:
     """
     Возвращает максимально допустимое плечо для инструмента.
