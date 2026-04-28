@@ -31,7 +31,8 @@ if __name__ == "__main__":
             f"Доступные эндпоинты:\n"
             f"{ngrok_url.public_url}/health\n"
             f"{ngrok_url.public_url}/monitoring\n"
-            f"{ngrok_url.public_url}/short_3_limit"
+            f"{ngrok_url.public_url}/short_3_limit\n"
+            f"{ngrok_url.public_url}/hedge_long_short_bu_ts"
         )
         send_notification_task.delay(notification_text)
         logger.info(f"✅ Уведомление отправлено подписчикам о запуске сервера")
