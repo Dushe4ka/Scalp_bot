@@ -29,10 +29,10 @@ if __name__ == "__main__":
         notification_text = (
             f"✅ Сервер запущен!\n\nPUBLIC URL: {base_url}\n\n"
             f"Доступные эндпоинты:\n"
-            f"{base_url}/health\n"
-            f"{base_url}/monitoring\n"
-            f"{base_url}/short_3_limit\n"
-            f"{base_url}/hedge_long_short_bu_ts"
+            f"🔻{base_url}/health\n\n"
+            f"🔻{base_url}/monitoring\n\n"
+            f"🔻{base_url}/short_3_limit\n\n"
+            f"🔻{base_url}/hedge_long_short_bu_ts"
         )
         send_notification_task.delay(notification_text)
         logger.info(f"✅ Уведомление отправлено подписчикам о запуске сервера")
