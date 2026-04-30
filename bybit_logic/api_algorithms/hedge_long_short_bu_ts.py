@@ -448,8 +448,8 @@ def start_trading(symbol: str) -> None:
                 msg = (
                     f"❌ Hedge {SYMBOL}: позиция не открыта\n"
                     f"Запрошено плечо: {requested}x\n"
-                    f"Максимум по инструменту: {max_lev}x\n"
-                    f"По правилам проекта снижение плеча запрещено."
+                    f"📉Максимум по инструменту: {max_lev}x\n"
+                    f"ℹ️По правилам проекта снижение плеча запрещено."
                 )
                 logger.error(msg)
                 send_notification_task.delay(msg)
