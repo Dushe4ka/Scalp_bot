@@ -58,34 +58,6 @@ def if_position_open(session: HTTP, symbol: str) -> bool:
             return False
 
 
-def set_leverage(session: HTTP, symbol: str, leverage: int = 10) -> bool:
-    """
-    Устанавливает кредитное плечо для линейного контракта.
-
-    По документации Bybit V5 и pybit:
-    - category="linear"
-    - buyLeverage / sellLeverage передаются строками
-    - в one-way режиме значения должны быть одинаковыми
-    """
-    try:
-        symbol = symbol.upper()
-        leverage_value = str(int(leverage))
-        response = session.set_leverage(
-            category="linear",
-            symbol=symbol,
-            buyLeverage=leverage_value,
-            sellLeverage=leverage_value,
-        )
-        if response and response.get("retCode") == 0:
-            logger.info("✅ Плечо установлено: %sx для %s", leverage_value, symbol)
-            return True
-
-        logger.error("❌ Не удалось установить плечо %sx для %s: %s", leverage_value, symbol, response)
-        return False
-    except Exception as e:
-        logger.error("❌ Ошибка установки плеча для %s: %s", symbol, e)
-        return False
-
 def get_last_position_info(session: HTTP, symbol: str) -> Optional[Dict[str, Any]]:
     """
     Получает информацию о последней позиции (открытой или закрытой) для указанного символа
@@ -269,26 +241,54 @@ def switch_position_mode(session: HTTP, symbol: str, position_mode: int = 3) -> 
         logger.error(f"Ошибка при переключении режима позиции: {e}")
         raise Exception(f"Ошибка при переключении режима позиции: {e}") from e
 
-def set_leverage(session: HTTP, symbol: str, category: str = "linear", buy_leverage: int = 10, sell_leverage: int = 10) -> None:
+def set_leverage(
+    session: HTTP,
+    symbol: str,
+    leverage: int = 10,
+    *,
+    category: str = "linear",
+    buy_leverage: int | None = None,
+    sell_leverage: int | None = None,
+    allow_lower_if_exceeds_max: bool = False,
+) -> Dict[str, Any]:
     """
     Устанавливает кредитное плечо
     """
     try:
         symbol = symbol.upper()
+        requested_buy = float(buy_leverage if buy_leverage is not None else leverage)
+        requested_sell = float(sell_leverage if sell_leverage is not None else leverage)
         max_lev = get_max_leverage(session, symbol, category=category)
-        final_buy = float(buy_leverage)
-        final_sell = float(sell_leverage)
+        final_buy = requested_buy
+        final_sell = requested_sell
+        was_capped = False
 
-        # Если удалось получить биржевой лимит — не превышаем его
+        # Если удалось получить биржевой лимит — проверяем ограничение.
         if max_lev is not None:
             if final_buy > max_lev or final_sell > max_lev:
+                if not allow_lower_if_exceeds_max:
+                    logger.warning(
+                        "Запрошенное плечо для %s превышает maxLeverage=%s. Строгий режим: установка отклонена",
+                        symbol,
+                        max_lev,
+                    )
+                    return {
+                        "ok": False,
+                        "symbol": symbol,
+                        "error_type": "leverage_too_high",
+                        "error": f"Requested leverage exceeds max leverage {max_lev}",
+                        "requested_buy": requested_buy,
+                        "requested_sell": requested_sell,
+                        "max_leverage": max_lev,
+                    }
+                was_capped = True
                 logger.warning(
-                    "Запрошенное плечо для %s превышает maxLeverage=%s, ограничиваю до лимита",
+                    "Запрошенное плечо для %s превышает maxLeverage=%s, ограничиваю до лимита (гибкий режим)",
                     symbol,
                     max_lev,
                 )
-            final_buy = min(final_buy, max_lev)
-            final_sell = min(final_sell, max_lev)
+                final_buy = min(final_buy, max_lev)
+                final_sell = min(final_sell, max_lev)
 
         session.set_leverage(
             category=category,
@@ -297,6 +297,25 @@ def set_leverage(session: HTTP, symbol: str, category: str = "linear", buy_lever
             buyLeverage=str(final_buy),
             sellLeverage=str(final_sell),
         )
+        logger.info(
+            "✅ Плечо установлено для %s: buy=%s sell=%s (requested buy=%s sell=%s max=%s)",
+            symbol,
+            str(final_buy),
+            str(final_sell),
+            str(requested_buy),
+            str(requested_sell),
+            str(max_lev),
+        )
+        return {
+            "ok": True,
+            "symbol": symbol,
+            "requested_buy": requested_buy,
+            "requested_sell": requested_sell,
+            "applied_buy": final_buy,
+            "applied_sell": final_sell,
+            "max_leverage": max_lev,
+            "was_capped": was_capped,
+        }
     except Exception as e:
         error_text = str(e)
         # Bybit: ErrCode 110043 = leverage not modified (значение уже установлено).
@@ -307,9 +326,23 @@ def set_leverage(session: HTTP, symbol: str, category: str = "linear", buy_lever
                 str(final_buy),
                 str(final_sell),
             )
-            return
+            return {
+                "ok": True,
+                "symbol": symbol,
+                "requested_buy": requested_buy,
+                "requested_sell": requested_sell,
+                "applied_buy": final_buy,
+                "applied_sell": final_sell,
+                "max_leverage": max_lev,
+                "was_capped": was_capped,
+                "not_modified": True,
+            }
         logger.error(f"Ошибка при установке кредитного плеча: {e}")
-        raise Exception(f"Ошибка при установке кредитного плеча: {e}") from e
+        return {
+            "ok": False,
+            "symbol": symbol,
+            "error": str(e),
+        }
 
 
 def set_isolated_margin(

@@ -41,23 +41,30 @@ def send_notification_to_user_task(self, tg_id: int, text: str):
     """
     Отправка уведомления конкретному пользователю в Telegram.
     """
-    try:
-        api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        response = requests.post(
-            api_url,
-            json={
-                "chat_id": int(tg_id),
-                "text": text,
-                "parse_mode": "HTML",
-            },
-            timeout=10,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not payload.get("ok"):
-            raise RuntimeError(payload.get("description", "Unknown Telegram error"))
-        logger.info("Уведомление об окончании отправлено tg_id=%s", tg_id)
-        return {"ok": True, "tg_id": tg_id}
-    except Exception as e:
-        logger.error("Ошибка отправки персонального уведомления tg_id=%s: %s", tg_id, e)
-        raise self.retry(exc=e)
+    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    max_attempts = 3
+    last_error = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.post(
+                api_url,
+                json={
+                    "chat_id": int(tg_id),
+                    "text": text,
+                    "parse_mode": "HTML",
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not payload.get("ok"):
+                raise RuntimeError(payload.get("description", "Unknown Telegram error"))
+            logger.info("Уведомление отправлено tg_id=%s (попытка %s)", tg_id, attempt)
+            return {"ok": True, "tg_id": tg_id}
+        except Exception as e:
+            last_error = e
+            logger.error(
+                "Ошибка отправки персонального уведомления tg_id=%s (попытка %s/%s): %s",
+                tg_id, attempt, max_attempts, e
+            )
+    raise self.retry(exc=last_error)

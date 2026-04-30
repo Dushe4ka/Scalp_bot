@@ -123,8 +123,8 @@ class BybitHttpAdapter:
     async def if_position_open(self, http_session, symbol: str) -> bool:
         return bool(await asyncio.to_thread(position.if_position_open, http_session, symbol))
 
-    async def set_leverage(self, http_session, symbol: str, leverage: int = 10) -> bool:
-        return bool(await asyncio.to_thread(position.set_leverage, http_session, symbol, leverage))
+    async def set_leverage(self, http_session, symbol: str, leverage: int = 10) -> dict[str, Any]:
+        return await asyncio.to_thread(position.set_leverage, http_session, symbol, leverage)
 
     async def get_ticker_price(self, http_session, symbol: str) -> float:
         tickers = await asyncio.to_thread(market.get_tickers_by_symbol, http_session, symbol)
@@ -281,8 +281,23 @@ class TradeSession:
         s.updated_at = time.time()
         self.http_session = await self.adapter.create_session(s.api_key, s.api_secret)
 
-        if not await self.adapter.set_leverage(self.http_session, s.symbol, LEVERAGE):
-            logger.error("❌ Не удалось установить кредитное плечо %sx trade_id=%s symbol=%s", LEVERAGE, s.trade_id, s.symbol)
+        leverage_result = await self.adapter.set_leverage(self.http_session, s.symbol, LEVERAGE)
+        if not leverage_result.get("ok"):
+            if leverage_result.get("error_type") == "leverage_too_high":
+                max_lev = leverage_result.get("max_leverage")
+                send_notification_to_user_task.delay(
+                    s.tg_id,
+                    "❌ Позиция не открыта: ограничение плеча\n\n"
+                    f"👤 Пользователь: {s.name} ({s.tg_id})\n"
+                    f"📊 Символ: {s.symbol}\n"
+                    f"🎯 Запрошено: {LEVERAGE}x\n"
+                    f"📉 Максимум по инструменту: {max_lev}x\n"
+                    "ℹ️ По правилам проекта снижение плеча отключено",
+                )
+            logger.error(
+                "❌ Не удалось установить кредитное плечо %sx trade_id=%s symbol=%s: %s",
+                LEVERAGE, s.trade_id, s.symbol, leverage_result
+            )
             s.should_stop = True
             return
 

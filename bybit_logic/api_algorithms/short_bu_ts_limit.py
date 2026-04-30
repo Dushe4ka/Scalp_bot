@@ -413,9 +413,28 @@ def start_trading(symbol: str):
     logger.info("✅ Подключение установлено")
 
     logger.info(f"⚙️ Устанавливаю кредитное плечо {LEVERAGE}x для {SYMBOL}...")
-    if not position.set_leverage(http_session, SYMBOL, LEVERAGE):
+    leverage_result = position.set_leverage(http_session, SYMBOL, LEVERAGE)
+    if not leverage_result.get("ok"):
+        if leverage_result.get("error_type") == "leverage_too_high":
+            max_lev = leverage_result.get("max_leverage")
+            notification_text = (
+                f"❌ Позиция не открыта: ограничение плеча\n\n"
+                f"📊 Символ: {SYMBOL}\n"
+                f"🎯 Запрошено: {LEVERAGE}x\n"
+                f"📉 Максимум по инструменту: {max_lev}x\n"
+                f"ℹ️ По правилам проекта снижение плеча отключено"
+            )
+            send_notification_task.delay(notification_text)
         logger.error(f"❌ Не удалось установить кредитное плечо {LEVERAGE}x. Остановка алгоритма.")
         return
+    if leverage_result.get("was_capped"):
+        logger.warning(
+            "⚠️ Для %s запрошено плечо %sx, но биржа разрешает максимум %sx. Применено %sx",
+            SYMBOL,
+            LEVERAGE,
+            leverage_result.get("max_leverage"),
+            leverage_result.get("applied_buy"),
+        )
     logger.info(f"✅ Кредитное плечо {LEVERAGE}x установлено")
 
     # ============================================

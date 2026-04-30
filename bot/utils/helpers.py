@@ -155,53 +155,72 @@ def send_to_subscribers_sync(text: str) -> dict:
     api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     
     for user_id in subscribers:
-        try:
-            # Прямой HTTP запрос к Telegram Bot API
-            response = requests.post(
-                api_url,
-                json={
-                    "chat_id": user_id,
-                    "text": text,
-                    "parse_mode": "HTML"  # Опционально, для форматирования
-                },
-                timeout=10  # Таймаут 10 секунд
-            )
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            if result.get("ok"):
-                sent += 1
-                logger.debug(f"Сообщение отправлено подписчику {user_id}")
-            else:
-                # Telegram вернул ошибку
+        delivered = False
+        last_error = ""
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Прямой HTTP запрос к Telegram Bot API
+                response = requests.post(
+                    api_url,
+                    json={
+                        "chat_id": user_id,
+                        "text": text,
+                        "parse_mode": "HTML"  # Опционально, для форматирования
+                    },
+                    timeout=10  # Таймаут 10 секунд
+                )
+                response.raise_for_status()
+                result = response.json()
+
+                if result.get("ok"):
+                    sent += 1
+                    delivered = True
+                    logger.debug(f"Сообщение отправлено подписчику {user_id} (попытка {attempt})")
+                    break
+
                 error_description = result.get("description", "Unknown error")
-                failed += 1
-                errors.append({"user_id": user_id, "error": error_description})
-                
-                # Если пользователь заблокировал бота, логируем отдельно
+                last_error = error_description
+                # Ошибки прав доступа не ретраим, это не временная проблема.
                 if "blocked" in error_description.lower() or "forbidden" in error_description.lower():
                     logger.warning(f"Пользователь {user_id} заблокировал бота")
-                else:
-                    logger.error(f"Ошибка отправки сообщения пользователю {user_id}: {error_description}")
-            
-            # Небольшая задержка чтобы не превысить rate limits Telegram API
-            # Telegram позволяет до 30 сообщений в секунду
-            if total > 30:
-                time.sleep(0.05)  # 50ms задержка = ~20 сообщений в секунду
-                
-        except requests.exceptions.Timeout:
+                    break
+
+                logger.error(
+                    f"Ошибка отправки сообщения пользователю {user_id} (попытка {attempt}/{max_attempts}): "
+                    f"{error_description}"
+                )
+            except requests.exceptions.Timeout:
+                last_error = "Request timeout"
+                logger.error(
+                    f"Таймаут при отправке сообщения пользователю {user_id} "
+                    f"(попытка {attempt}/{max_attempts})"
+                )
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                logger.error(
+                    f"Ошибка HTTP запроса для пользователя {user_id} "
+                    f"(попытка {attempt}/{max_attempts}): {e}"
+                )
+            except Exception as e:
+                last_error = str(e)
+                logger.error(
+                    f"Неожиданная ошибка при отправке сообщения пользователю {user_id} "
+                    f"(попытка {attempt}/{max_attempts}): {e}"
+                )
+
+            if attempt < max_attempts:
+                # Небольшой backoff перед следующей попыткой.
+                time.sleep(0.6 * attempt)
+
+        if not delivered:
             failed += 1
-            errors.append({"user_id": user_id, "error": "Request timeout"})
-            logger.error(f"Таймаут при отправке сообщения пользователю {user_id}")
-        except requests.exceptions.RequestException as e:
-            failed += 1
-            errors.append({"user_id": user_id, "error": str(e)})
-            logger.error(f"Ошибка HTTP запроса для пользователя {user_id}: {e}")
-        except Exception as e:
-            failed += 1
-            errors.append({"user_id": user_id, "error": str(e)})
-            logger.error(f"Неожиданная ошибка при отправке сообщения пользователю {user_id}: {e}")
+            errors.append({"user_id": user_id, "error": last_error or "Unknown error"})
+
+        # Небольшая задержка чтобы не превысить rate limits Telegram API
+        # Telegram позволяет до 30 сообщений в секунду
+        if total > 30:
+            time.sleep(0.05)  # 50ms задержка = ~20 сообщений в секунду
     
     logger.info(f"Синхронная рассылка завершена: отправлено {sent} из {total}, ошибок: {failed}")
     
