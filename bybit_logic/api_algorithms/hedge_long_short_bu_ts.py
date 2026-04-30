@@ -244,9 +244,6 @@ def handle_ticker_price(message: dict) -> None:
         if should_stop:
             return
 
-        if entry_buy is None or entry_sell is None:
-            return
-
         long_pct = (
             ((current_price - entry_buy) / entry_buy) * 100
             if size_buy > 0 and entry_buy and entry_buy > 0
@@ -263,6 +260,11 @@ def handle_ticker_price(message: dict) -> None:
             and long_pct >= BU_TRIGGER_PCT
             and not trigger_buy_done
         ):
+            logger.info(
+                "Long: достигнут порог БУ %.2f%% (текущее %.2f%%), попытка установки БУ/активации трейлинга",
+                BU_TRIGGER_PCT,
+                long_pct,
+            )
             if _price_trigger_buy():
                 trigger_buy_done = True
 
@@ -271,6 +273,11 @@ def handle_ticker_price(message: dict) -> None:
             and short_pct >= BU_TRIGGER_PCT
             and not trigger_sell_done
         ):
+            logger.info(
+                "Short: достигнут порог БУ %.2f%% (текущее %.2f%%), попытка установки БУ/активации трейлинга",
+                BU_TRIGGER_PCT,
+                short_pct,
+            )
             if _price_trigger_sell():
                 trigger_sell_done = True
 
