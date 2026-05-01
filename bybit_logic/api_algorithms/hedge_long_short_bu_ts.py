@@ -1,6 +1,6 @@
 """
 Немультюзер: одновременный long + short по символу (linear hedge), плечо 10x,
-стартовый SL 2%% на каждую ногу, БУ при +2%% прибыли по ноге, трейлинг шаг 1%% на каждую ногу.
+стартовый SL 3%% на каждую ногу, БУ при +3%% прибыли по ноге, трейлинг шаг 2%% на каждую ногу.
 """
 from __future__ import annotations
 
@@ -28,11 +28,11 @@ USDT_AMOUNT = float(os.getenv("USDT_AMOUNT", "100"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL", "5"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE", "0.5"))
 
-BU_TRIGGER_PCT = 2.0
-INITIAL_SL_PCT = 2.0
-TRAIL_STEP_PCT = 1.0
+BU_TRIGGER_PCT = 3.0
+INITIAL_SL_PCT = 3.0
+TRAIL_STEP_PCT = 2.0
 LEVERAGE = 10
-BU_FIRST_TRAIL_PCT = BU_TRIGGER_PCT + 1.0
+BU_FIRST_TRAIL_PCT = BU_TRIGGER_PCT + TRAIL_STEP_PCT
 
 SYMBOL: str | None = None
 http_session = None
