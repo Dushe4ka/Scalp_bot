@@ -1,13 +1,15 @@
 from fastapi import APIRouter, HTTPException, Request
-from server_api.schemas import SymbolRequest
+from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest
 from logger_config import setup_logger
 from celery_app.tasks.short_3_limit import short_3_limit
 from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
 from celery_app.tasks.short_bu_ts_limit_nomulti import nomulti_short_bu_ts_limit_task
+from celery_app.tasks.custom_algo_nomulti import nomulti_custom_algo_task
 from bybit_logic.bybit_func import session, stop_trade, position
 from server_api.utils import validate_and_clean_symbol
 from config import USE_DEMO
 from users_repository import db
+from custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
 
 router = APIRouter()
 logger = setup_logger(__name__)
@@ -137,6 +139,42 @@ async def hedge_long_short_bu_ts_endpoint(request: Request):
         raise
     except Exception as e:
         logger.error("Ошибка постановки hedge_long_short_bu_ts: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/nomulti_custom_algo")
+async def nomulti_custom_algo_endpoint(request: CustomAlgoLaunchRequest):
+    """Запуск custom nomulti алгоритма по символу с конфигурацией пользователя."""
+    try:
+        symbol = validate_and_clean_symbol(request.symbol).upper()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Символ не может быть пустым")
+
+        config_doc = await custom_algo_db.get_by_tg_id(request.tg_id)
+        if not config_doc:
+            raise HTTPException(status_code=404, detail="Custom конфигурация не найдена")
+
+        config = normalize_custom_config(config_doc)
+        if request.order_amount_override is not None:
+            if request.order_amount_override <= 0:
+                raise HTTPException(status_code=400, detail="order_amount_override должен быть > 0")
+            config["order_amount_usdt"] = float(request.order_amount_override)
+
+        if config.get("order_amount_usdt") is None:
+            raise HTTPException(status_code=400, detail="Не задана сумма сделки в конфиге или override")
+
+        task = nomulti_custom_algo_task.delay(symbol=symbol, config=config)
+        return {
+            "symbol": symbol,
+            "status": "started",
+            "task_id": task.id,
+        }
+    except CustomAlgoValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Ошибка постановки nomulti_custom_algo: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -17,10 +17,9 @@ logger = setup_logger(__name__)
 
 # ============================================
 # SYMBOL = os.getenv("SYMBOL").upper()
-USDT_AMOUNT = float(os.getenv("USDT_AMOUNT"))
+USDT_AMOUNT = float(os.getenv("SHORT_BU_TS_LIMIT_USDT_AMOUNT", os.getenv("USDT_AMOUNT")))
 TRIGGER_PERCENTAGE = float(os.getenv("TRIGGER_PERCENTAGE"))
 TRIGGER_TS_PERCENTAGE = float(os.getenv("TRIGGER_TS_PERCENTAGE"))
-TRIGGER_PERCENTAGE_INITIAL_TS = TRIGGER_PERCENTAGE + 1
 STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE"))
 POSITION_SIDE = os.getenv("POSITION_SIDE")
@@ -51,8 +50,27 @@ should_stop = False  # ✅ Флаг для остановки алгоритма
 # Уведомление о финале: True после рассылки о закрытии позиции или общего финала
 completion_notified = False
 monitoring_active = False  # True после успешного входа, перед run_forever WebSocket
+averaging_fills_count = 0  # Количество сработавших усреднений (по факту роста размера позиции)
 
-def price_trigger_callback() -> bool:
+
+def get_active_bu_trigger_percentage() -> float:
+    """
+    После 3-го усреднения БУ должен срабатывать на 1%.
+    До этого используется базовый TRIGGER_PERCENTAGE из .env.
+    """
+    if averaging_fills_count >= 3:
+        return 1.0
+    return TRIGGER_PERCENTAGE
+
+
+def get_active_initial_ts_trigger_percentage() -> float:
+    """
+    Порог для немедленной установки первого трейлинг-стопа после активации БУ:
+    как и раньше, это BU + 1%.
+    """
+    return get_active_bu_trigger_percentage() + 1.0
+
+def price_trigger_callback(active_bu_trigger: float) -> bool:
     """
     Эта функция вызывается, когда цена изменилась на целевой процент
     
@@ -116,11 +134,15 @@ def price_trigger_callback() -> bool:
     logger.info(f"🟢 Трейлинг стоп активирован на цене {current_price:.8g} (БУ установлен)")
     print("🟢 Трейлинг стоп активирован!")
 
-    # КРИТИЧНО: Если прибыль уже больше TRIGGER_PERCENTAGE_INITIAL_TS,
+    # КРИТИЧНО: Если прибыль уже больше активного порога initial TS,
     # сразу устанавливаем первый стоп трейлинг стопа на текущей прибыли
     # Это нужно, чтобы зафиксировать прибыль сразу, а не ждать дальнейшего роста
-    if price_change_percent >= TRIGGER_PERCENTAGE_INITIAL_TS:
-        logger.info(f"💰 Прибыль уже {price_change_percent:.2f}% (больше целевого {TRIGGER_PERCENTAGE}%)")
+    active_initial_ts_trigger = get_active_initial_ts_trigger_percentage()
+    if price_change_percent >= active_initial_ts_trigger:
+        logger.info(
+            f"💰 Прибыль уже {price_change_percent:.2f}% "
+            f"(больше целевого порога {active_initial_ts_trigger:.2f}%)"
+        )
         logger.info(f"📝 Сразу устанавливаю первый стоп трейлинг стопа на текущей цене...")
         if trailing_stop.set_initial_stop(current_price):
             logger.info(f"✅ Первый стоп трейлинг стопа установлен сразу на текущей прибыли {price_change_percent:.2f}%")
@@ -128,7 +150,10 @@ def price_trigger_callback() -> bool:
         else:
             logger.warning("⚠️ Не удалось установить начальный стоп, он установится при следующем росте")
     else:
-        logger.info(f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на {trailing_stop.trigger_percentage}%")
+            logger.info(
+                f"ℹ️ Первый стоп трейлинг стопа установится при росте цены на "
+                f"{trailing_stop.trigger_percentage}% после БУ ({active_bu_trigger:.2f}%)"
+            )
 
     print("=" * 50)
     return True
@@ -155,6 +180,7 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
     global entry_price, position_qty, previous_avg_price, previous_position_size
     global last_position_check_time, http_session, SYMBOL, should_stop
     global completion_notified
+    global averaging_fills_count
     
     current_timestamp = time.time()
     
@@ -218,6 +244,12 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
             logger.info(f"🔄 Обнаружено изменение позиции:")
             logger.info(f"   avgPrice: {previous_avg_price:.8g} → {current_avg_price:.8g}")
             logger.info(f"   size: {previous_position_size:.8g} → {current_size:.8g}")
+
+            # Фиксируем сработавшее усреднение по факту увеличения размера позиции.
+            # Уменьшение размера (частичное закрытие) не учитываем.
+            if current_size > previous_position_size + 1e-8:
+                averaging_fills_count += 1
+                logger.info(f"📌 Усреднение #{averaging_fills_count} зафиксировано (size вырос)")
             
             # Сохраняем предыдущие значения для логирования
             old_entry_price = entry_price
@@ -306,10 +338,11 @@ def handle_ticker_price(message):
         # ============================================
         # ПРОВЕРКА: ДОСТИГНУТА ЛИ ЦЕЛЕВАЯ ЦЕНА?
         # ============================================
-        if price_change_percent >= TRIGGER_PERCENTAGE and not trigger_called:
+        active_bu_trigger = get_active_bu_trigger_percentage()
+        if price_change_percent >= active_bu_trigger and not trigger_called:
             # Целевой процент достигнут, пробуем поставить БУ.
             # trigger_called станет True только при успешной установке БУ.
-            if price_trigger_callback():
+            if price_trigger_callback(active_bu_trigger):
                 trigger_called = True
         
         # ============================================
@@ -369,6 +402,7 @@ def start_trading(symbol: str):
     global SYMBOL, should_stop, trigger_called, current_price, price_change_percent
     global pnl_usdt, last_log_time, trailing_stop
     global completion_notified, monitoring_active
+    global averaging_fills_count
 
     # Сбрасываем все переменные состояния
     SYMBOL = None
@@ -389,6 +423,7 @@ def start_trading(symbol: str):
     should_stop = False
     completion_notified = False
     monitoring_active = False
+    averaging_fills_count = 0
 
     SYMBOL = symbol.upper()
     
@@ -401,7 +436,10 @@ def start_trading(symbol: str):
     logger.info(f"📊 Символ: {SYMBOL}")
     logger.info(f"💰 Сумма: {USDT_AMOUNT} USDT")
     logger.info(f"📈 Сторона: {POSITION_SIDE} ({'Покупка' if POSITION_SIDE == 'Buy' else 'Продажа'})")
-    logger.info(f"🎯 Целевой процент: {TRIGGER_PERCENTAGE}%")
+    logger.info(
+        f"🎯 Целевой процент БУ: {TRIGGER_PERCENTAGE}% "
+        f"(после 3 усреднений автоматически 1.0%)"
+    )
     logger.info(f"⏱️  Интервал логирования PnL: {PNL_LOG_INTERVAL} секунд")
     logger.info("=" * 50)
     

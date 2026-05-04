@@ -10,6 +10,7 @@ def main_menu_kb(user_id: int) -> InlineKeyboardBuilder:
     kb.button(text="🖥 Сервер", callback_data="server")
     kb.button(text="📈 Трейдинг", callback_data="trading")
     kb.button(text="👤 Аккаунт", callback_data="account")
+    kb.button(text="🔴 Custom Algo", callback_data="custom_algo_launch")
     kb.adjust(1)
     return kb
 
@@ -55,8 +56,65 @@ def algorithms_kb() -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.button(text="Short BU TS limit (nomulti)", callback_data="nomulti_short_bu_ts_limit")
     kb.button(text="Hedge long + short", callback_data="hedge_long_short_bu_ts")
+    kb.button(text="Custom ⚙️", callback_data="custom_algo")
     kb.button(text="⬅️ Назад", callback_data="trading")
     kb.adjust(1)
+    return kb
+
+
+def custom_algo_config_kb(config: dict) -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    direction = config.get("direction", "long")
+    direction_label = "Лонг" if direction == "long" else "Шорт"
+    mark = lambda enabled: "✅" if enabled else "❌"
+
+    kb.button(text=f"0. Сторона: {direction_label}", callback_data="custom_toggle_direction")
+    kb.button(
+        text=f"1. Трейлинг стоп: {mark(config.get('use_trailing_stop', False))}",
+        callback_data="custom_toggle_trailing",
+    )
+    kb.button(
+        text=f"2. Стоп-лосс: {mark(config.get('use_stop_loss', False))}",
+        callback_data="custom_toggle_stop_loss",
+    )
+    kb.button(
+        text=f"3. БУ: {mark(config.get('use_breakeven', False))}",
+        callback_data="custom_toggle_breakeven",
+    )
+    amount = config.get("order_amount_usdt")
+    amount_text = f"{amount:g} USDT" if isinstance(amount, (float, int)) else "10 USDT"
+    kb.button(text=f"4. Цена ордера: {amount_text}", callback_data="custom_set_order_amount")
+    kb.button(text="5. Далее", callback_data="custom_next")
+    kb.button(text="⬅️ Назад", callback_data="algorithms")
+    kb.adjust(1)
+    return kb
+
+
+def custom_algo_saved_kb() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Изменить", callback_data="custom_algo_edit")
+    kb.button(text="⬅️ Назад", callback_data="algorithms")
+    kb.adjust(1)
+    return kb
+
+
+def custom_algo_confirm_kb() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Принять", callback_data="custom_confirm_accept")
+    kb.button(text="⬅️ Назад", callback_data="custom_confirm_back")
+    kb.adjust(2)
+    return kb
+
+
+def custom_step_back_kb() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Назад", callback_data="custom_step_back")
+    return kb
+
+
+def custom_launch_amount_back_kb() -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="⬅️ Назад", callback_data="custom_launch_back_to_symbol")
     return kb
 
 def stop_trading_kb() -> InlineKeyboardBuilder:

@@ -24,7 +24,7 @@ logger = setup_logger(__name__)
 POSITION_IDX_BUY = 1
 POSITION_IDX_SELL = 2
 
-USDT_AMOUNT = float(os.getenv("USDT_AMOUNT", "100"))
+USDT_AMOUNT = float(os.getenv("HEDGE_USDT_AMOUNT", os.getenv("USDT_AMOUNT", "100")))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL", "5"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE", "0.5"))
 
