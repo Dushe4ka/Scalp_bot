@@ -7,6 +7,11 @@ dotenv.load_dotenv()
 USE_DEMO_STR = os.getenv("USE_DEMO", "False").strip().lower()
 USE_DEMO = USE_DEMO_STR in ("true", "1", "yes")
 
+# Режим маржи аккаунта для UTA:
+# - CROSS / REGULAR / REGULAR_MARGIN
+# - ISOLATED / ISOLATED_MARGIN
+TRADING_MARGIN_MODE = (os.getenv("MARGIN_MODE", "CROSS") or "CROSS").strip().upper()
+
 # Поддержка двух форматов env-ключей:
 # - новый: MONGO_URI / MONGO_DB
 # - legacy: MONGODB_URI / MONGODB_DB

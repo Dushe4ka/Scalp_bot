@@ -366,23 +366,60 @@ def set_isolated_margin(
 
     Документация: https://bybit-exchange.github.io/docs/v5/account/set-margin-mode
     """
+    set_account_margin_mode(session, symbol, desired_mode="ISOLATED")
+
+
+def set_account_margin_mode(session: HTTP, symbol: str, desired_mode: str = "CROSS") -> None:
+    """
+    Переключает режим маржи аккаунта UTA между CROSS и ISOLATED.
+
+    Args:
+        session: HTTP-сессия pybit
+        symbol: Символ (только для лог-контекста)
+        desired_mode: CROSS/REGULAR или ISOLATED
+    """
+    symbol = symbol.upper()
+    desired_raw = (desired_mode or "CROSS").strip().upper()
+
+    mode_aliases = {
+        "CROSS": "REGULAR_MARGIN",
+        "REGULAR": "REGULAR_MARGIN",
+        "REGULAR_MARGIN": "REGULAR_MARGIN",
+        "ISOLATED": "ISOLATED_MARGIN",
+        "ISOLATED_MARGIN": "ISOLATED_MARGIN",
+    }
+    target_mode = mode_aliases.get(desired_raw)
+    if target_mode is None:
+        raise ValueError(
+            f"Неизвестный режим маржи '{desired_mode}'. Используйте CROSS/REGULAR или ISOLATED"
+        )
+
     try:
-        symbol = symbol.upper()
         info = session.get_account_info()
         if info.get("retCode") != 0:
             raise Exception(f"get_account_info: {info}")
 
-        margin_mode = (info.get("result") or {}).get("marginMode")
-        if margin_mode == "ISOLATED_MARGIN":
-            logger.info("Аккаунт уже в ISOLATED_MARGIN (%s), пропуск set-margin-mode", symbol)
+        current_mode = (info.get("result") or {}).get("marginMode")
+        if current_mode == target_mode:
+            logger.info("Режим маржи уже %s (%s), пропуск", target_mode, symbol)
             return
 
-        # При ошибке pybit выбросит InvalidRequestError (текст от Bybit, часто с reasons в теле ответа в сообщении).
-        session.set_margin_mode(setMarginMode="ISOLATED_MARGIN")
-        logger.info("✅ Аккаунт переведён в ISOLATED_MARGIN (символ в контексте: %s)", symbol)
+        session.set_margin_mode(setMarginMode=target_mode)
+        logger.info(
+            "✅ Аккаунт переведён в %s (символ в контексте: %s)",
+            target_mode,
+            symbol,
+        )
     except Exception as e:
-        logger.error("Ошибка при переключении в isolated margin для %s: %s", symbol, e)
-        raise Exception(f"Ошибка при переключении в isolated margin для {symbol}: {e}") from e
+        logger.error(
+            "Ошибка при переключении режима маржи для %s в %s: %s",
+            symbol,
+            target_mode,
+            e,
+        )
+        raise Exception(
+            f"Ошибка при переключении режима маржи для {symbol} в {target_mode}: {e}"
+        ) from e
 
 
 def get_max_leverage(session: HTTP, symbol: str, category: str = "linear") -> Optional[float]:

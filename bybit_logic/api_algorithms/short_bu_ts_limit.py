@@ -10,6 +10,7 @@ from logger_config import setup_logger
 import time
 import os
 import dotenv
+from config import TRADING_MARGIN_MODE
 
 dotenv.load_dotenv()
 
@@ -449,6 +450,13 @@ def start_trading(symbol: str):
     logger.info("🔌 Подключаюсь к бирже Bybit...")
     http_session = session.create_session(use_demo=USE_DEMO)
     logger.info("✅ Подключение установлено")
+
+    logger.info(f"⚙️ Устанавливаю режим маржи аккаунта: {TRADING_MARGIN_MODE}...")
+    try:
+        position.set_account_margin_mode(http_session, SYMBOL, desired_mode=TRADING_MARGIN_MODE)
+    except Exception as e:
+        logger.error(f"❌ Не удалось установить режим маржи {TRADING_MARGIN_MODE}: {e}")
+        return
 
     logger.info(f"⚙️ Устанавливаю кредитное плечо {LEVERAGE}x для {SYMBOL}...")
     leverage_result = position.set_leverage(http_session, SYMBOL, LEVERAGE)

@@ -13,7 +13,7 @@ from bybit_logic.bybit_func import session, position, market, calculator, orders
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
 from celery_app.tasks.notifications import send_notification_task
-from config import USE_DEMO
+from config import USE_DEMO, TRADING_MARGIN_MODE
 from logger_config import setup_logger
 
 dotenv.load_dotenv()
@@ -436,11 +436,10 @@ def start_trading(symbol: str) -> None:
 
     _try_switch_hedge(SYMBOL)
     try:
-        position.set_isolated_margin(
+        position.set_account_margin_mode(
             http_session,
             SYMBOL,
-            buy_leverage=LEVERAGE,
-            sell_leverage=LEVERAGE,
+            desired_mode=TRADING_MARGIN_MODE,
         )
         leverage_result = position.set_leverage(
             http_session,
@@ -477,7 +476,7 @@ def start_trading(symbol: str) -> None:
                 f"Применено: {applied}x"
             )
     except Exception as e:
-        logger.error("set_isolated_margin/set_leverage: %s", e)
+        logger.error("set_account_margin_mode/set_leverage: %s", e)
         send_notification_task.delay(f"❌ Hedge {SYMBOL}: не удалось подготовить маржу/плечо: {e}")
         return
 

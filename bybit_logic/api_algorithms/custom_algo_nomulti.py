@@ -6,7 +6,7 @@ from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
 from custom_algo_repository import normalize_custom_config
 from logger_config import setup_logger
-from config import USE_DEMO
+from config import USE_DEMO, TRADING_MARGIN_MODE
 
 logger = setup_logger(__name__)
 
@@ -157,6 +157,12 @@ def start_trading(symbol: str, config: dict):
     http_session = session.create_session(use_demo=USE_DEMO)
     if position.if_position_open(http_session, symbol):
         raise RuntimeError(f"По {symbol} уже есть открытая позиция")
+
+    position.set_account_margin_mode(
+        http_session,
+        symbol,
+        desired_mode=TRADING_MARGIN_MODE,
+    )
 
     lev_result = position.set_leverage(http_session, symbol, LEVERAGE)
     if not lev_result.get("ok"):
