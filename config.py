@@ -7,8 +7,11 @@ dotenv.load_dotenv()
 USE_DEMO_STR = os.getenv("USE_DEMO", "False").strip().lower()
 USE_DEMO = USE_DEMO_STR in ("true", "1", "yes")
 
-MONGO_URI = os.getenv("MONGO_URI","mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "scalp_bot")
+# Поддержка двух форматов env-ключей:
+# - новый: MONGO_URI / MONGO_DB
+# - legacy: MONGODB_URI / MONGODB_DB
+MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
+MONGO_DB = os.getenv("MONGO_DB") or os.getenv("MONGODB_DB") or "scalp_bot"
 
 # Даннные для Telegram бота
 TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
@@ -25,5 +28,8 @@ ADMIN_IDS = {
     if x.strip().isdigit()
 }
 
-# URL сервера Scalp_bot_api
-SERVER_URL = os.getenv("SERVER_URL", "http://127.0.0.1:8050")
+# Локальный URL для внутренних запросов проекта (бот -> API, админка -> API)
+LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8050")
+
+# Публичный URL (для уведомлений/показа внешних эндпоинтов)
+SERVER_URL = os.getenv("SERVER_URL", LOCAL_SERVER_URL)

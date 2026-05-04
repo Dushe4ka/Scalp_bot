@@ -40,7 +40,7 @@ from bot.utils.helpers import safe_edit_message
 from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
 from users_repository import db, UsersRepositoryError, ValidationError
-from config import SERVER_URL
+from config import LOCAL_SERVER_URL
 
 
 router = Router()
@@ -1233,7 +1233,7 @@ async def check_health(callback: CallbackQuery, lang: str):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{SERVER_URL}/health",
+                f"{LOCAL_SERVER_URL}/health",
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as response:
                 data = await response.json()

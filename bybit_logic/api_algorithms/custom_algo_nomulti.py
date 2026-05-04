@@ -24,12 +24,13 @@ last_pnl_log_ts = 0.0
 last_position_check_ts = 0.0
 breakeven_activated = False
 trailing_stop = None
+active_position_idx = None
 
 
 def _reset_runtime():
     global current_price, entry_price, position_qty, position_side
     global price_stream, should_stop, last_pnl_log_ts, last_position_check_ts
-    global breakeven_activated, trailing_stop
+    global breakeven_activated, trailing_stop, active_position_idx
     current_price = None
     entry_price = None
     position_qty = None
@@ -40,6 +41,7 @@ def _reset_runtime():
     last_position_check_ts = 0.0
     breakeven_activated = False
     trailing_stop = None
+    active_position_idx = None
 
 
 def _calc_profit_pct() -> float:
@@ -50,27 +52,43 @@ def _calc_profit_pct() -> float:
     return ((entry_price - current_price) / entry_price) * 100
 
 
-def _is_position_closed(http_session, symbol: str) -> bool:
+def _select_position_row(rows: list[dict], side: str, position_idx: int | None) -> dict | None:
+    if position_idx is not None:
+        for row in rows:
+            if int(row.get("positionIdx", 0) or 0) == int(position_idx):
+                return row
+    for row in rows:
+        if row.get("side") == side:
+            return row
+    return rows[0] if rows else None
+
+
+def _is_position_closed(http_session, symbol: str, side: str, position_idx: int | None) -> bool:
     info = position.get_positions_by_symbol(http_session, symbol)
     if not info or not info.get("result", {}).get("list"):
         return True
-    size = float(info["result"]["list"][0].get("size", 0) or 0)
+    row = _select_position_row(info["result"]["list"], side=side, position_idx=position_idx)
+    if row is None:
+        return True
+    size = float(row.get("size", 0) or 0)
     return size <= 0
 
 
-def _init_position_data(http_session, symbol: str):
+def _init_position_data(http_session, symbol: str, side: str, position_idx: int | None):
     global entry_price, position_qty
     info = position.get_positions_by_symbol(http_session, symbol)
     if not info or not info.get("result", {}).get("list"):
         raise RuntimeError(f"Не удалось получить позицию после входа для {symbol}")
-    pos = info["result"]["list"][0]
+    pos = _select_position_row(info["result"]["list"], side=side, position_idx=position_idx)
+    if pos is None:
+        raise RuntimeError(f"Не удалось выбрать строку позиции для {symbol} (side={side}, idx={position_idx})")
     entry_price = float(pos.get("avgPrice", 0) or 0)
     position_qty = float(pos.get("size", 0) or 0)
     if entry_price <= 0 or position_qty <= 0:
         raise RuntimeError(f"Некорректные параметры позиции для {symbol}: entry={entry_price}, qty={position_qty}")
 
 
-def _handle_ticker_price(message: dict, http_session, symbol: str, cfg: dict):
+def _handle_ticker_price(message: dict, http_session, symbol: str, cfg: dict, position_idx: int | None):
     global current_price, should_stop, last_pnl_log_ts, last_position_check_ts, breakeven_activated, trailing_stop
 
     data = message.get("data", {})
@@ -96,6 +114,7 @@ def _handle_ticker_price(message: dict, http_session, symbol: str, cfg: dict):
             session=http_session,
             position_side=position_side,
             correction_percent_start=CORRECTION_SL_PERCENTAGE,
+            position_idx=position_idx,
         )
         if ok:
             breakeven_activated = True
@@ -110,7 +129,7 @@ def _handle_ticker_price(message: dict, http_session, symbol: str, cfg: dict):
 
     if now - last_position_check_ts >= 1.0:
         last_position_check_ts = now
-        if _is_position_closed(http_session, symbol):
+        if _is_position_closed(http_session, symbol, side=position_side, position_idx=position_idx):
             should_stop = True
             try:
                 result_text = position.result_position_info(symbol, http_session)
@@ -125,7 +144,7 @@ def _handle_ticker_price(message: dict, http_session, symbol: str, cfg: dict):
 
 
 def start_trading(symbol: str, config: dict):
-    global price_stream, position_side, trailing_stop
+    global price_stream, position_side, trailing_stop, active_position_idx
     _reset_runtime()
 
     symbol = symbol.strip().upper()
@@ -146,14 +165,27 @@ def start_trading(symbol: str, config: dict):
     qty = calculator.calculate_qty(symbol, actual_usdt_for_qty, http_session)
     logger.info("Открытие custom позиции: %s %s qty=%s user_usdt=%s actual_usdt=%s", symbol, side, qty, order_amount_usdt, actual_usdt_for_qty)
     open_result = orders.place_order(symbol, qty, side, "Market", http_session)
+    active_position_idx = None
+    if not open_result or open_result.get("retCode") != 0:
+        # Fallback: если аккаунт в hedge-mode, повторяем вход с positionIdx.
+        hedge_idx = 1 if side == "Buy" else 2
+        logger.warning(
+            "Первичный вход не удался (%s). Пробую hedge fallback с positionIdx=%s",
+            open_result,
+            hedge_idx,
+        )
+        open_result = orders.place_order(symbol, qty, side, "Market", http_session, position_idx=hedge_idx)
+        if open_result and open_result.get("retCode") == 0:
+            active_position_idx = hedge_idx
+
     if not open_result or open_result.get("retCode") != 0:
         raise RuntimeError(f"Ошибка открытия позиции: {open_result}")
 
-    _init_position_data(http_session, symbol)
+    _init_position_data(http_session, symbol, side=side, position_idx=active_position_idx)
 
     if cfg["use_stop_loss"]:
         sl_price = calculator.calculate_stop_loss(entry_price, cfg["stop_loss_pct"], side)
-        sl_result = orders.set_stop_loss(symbol, sl_price, http_session)
+        sl_result = orders.set_stop_loss(symbol, sl_price, http_session, position_idx=active_position_idx)
         if not sl_result or sl_result.get("retCode") != 0:
             logger.warning("SL не установлен для %s: %s", symbol, sl_result)
         else:
@@ -166,10 +198,11 @@ def start_trading(symbol: str, config: dict):
             trigger_percentage=cfg["trailing_step_pct"],
             position_side=side,
             offset_percentage=0.1,
+            position_idx=active_position_idx,
         )
 
     def _price_handler(message: dict):
-        _handle_ticker_price(message, http_session, symbol, cfg)
+        _handle_ticker_price(message, http_session, symbol, cfg, active_position_idx)
 
     price_stream = PriceStream(symbol, _price_handler, testnet=USE_DEMO)
     logger.info("🚀 Запуск PriceStream custom_algo для %s", symbol)
