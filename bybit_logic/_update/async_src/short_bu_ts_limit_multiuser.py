@@ -45,6 +45,10 @@ PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
 SNAPSHOT_INTERVAL_SECONDS = 3.0
 
 
+def _hedge_leg_position_idx(side: str | None) -> int:
+    return 1 if (side or "").strip() == "Buy" else 2
+
+
 @dataclass
 class TradeState:
     trade_id: str
@@ -74,6 +78,7 @@ class TradeState:
     position_opened: bool = False
     trailing_active: bool = False
     last_snapshot_at: float = 0.0
+    active_position_idx: int | None = None
 
 
 class TradeStateStore:
@@ -133,37 +138,81 @@ class BybitHttpAdapter:
     async def calculate_qty(self, symbol: str, amount: float, http_session) -> float:
         return float(await asyncio.to_thread(calculator.calculate_qty, symbol, amount, http_session))
 
-    async def place_order(self, symbol: str, qty: float, side: str, http_session) -> dict[str, Any] | None:
-        return await asyncio.to_thread(orders.place_order, symbol, qty, side, "Market", http_session)
+    async def place_order(
+        self,
+        symbol: str,
+        qty: float,
+        side: str,
+        http_session,
+        *,
+        position_idx: int | None = None,
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            lambda: orders.place_order(
+                symbol, qty, side, "Market", http_session, position_idx=position_idx
+            )
+        )
 
     async def get_positions_by_symbol(self, http_session, symbol: str):
         return await asyncio.to_thread(position.get_positions_by_symbol, http_session, symbol)
 
-    async def set_stop_loss(self, symbol: str, stop_loss_price: float, http_session):
-        return await asyncio.to_thread(orders.set_stop_loss, symbol, stop_loss_price, http_session)
-
-    async def place_n_limit_order(self, symbol: str, amount: float, side: str, entry_price: float, http_session):
+    async def set_stop_loss(
+        self,
+        symbol: str,
+        stop_loss_price: float,
+        http_session,
+        *,
+        position_idx: int | None = None,
+    ):
         return await asyncio.to_thread(
-            orders.place_n_limit_order,
-            symbol,
-            amount,
-            side,
-            entry_price,
-            http_session,
-            COUNT_LIMIT_ORDERS,
-            LIMIT_PERCENTAGE,
+            lambda: orders.set_stop_loss(
+                symbol, stop_loss_price, http_session, position_idx=position_idx
+            )
         )
 
-    async def set_breakeven_with_retries(self, symbol: str, current_price: float, http_session, side: str):
+    async def place_n_limit_order(
+        self,
+        symbol: str,
+        amount: float,
+        side: str,
+        entry_price: float,
+        http_session,
+        *,
+        position_idx: int | None = None,
+    ):
         return await asyncio.to_thread(
-            orders.set_stop_loss_with_breakeven_retries,
-            symbol,
-            current_price,
-            http_session,
-            side,
-            correction_percent_start=CORRECTION_SL_PERCENTAGE,
-            correction_percent_stop=2.0,
-            correction_percent_step=0.5,
+            lambda: orders.place_n_limit_order(
+                symbol,
+                amount,
+                side,
+                entry_price,
+                http_session,
+                COUNT_LIMIT_ORDERS,
+                LIMIT_PERCENTAGE,
+                position_idx=position_idx,
+            )
+        )
+
+    async def set_breakeven_with_retries(
+        self,
+        symbol: str,
+        current_price: float,
+        http_session,
+        side: str,
+        *,
+        position_idx: int | None = None,
+    ):
+        return await asyncio.to_thread(
+            lambda: orders.set_stop_loss_with_breakeven_retries(
+                symbol,
+                current_price,
+                http_session,
+                side,
+                correction_percent_start=CORRECTION_SL_PERCENTAGE,
+                correction_percent_stop=2.0,
+                correction_percent_step=0.5,
+                position_idx=position_idx,
+            )
         )
 
     async def stop_trading(self, symbol: str, http_session) -> None:
@@ -301,6 +350,9 @@ class TradeSession:
             s.should_stop = True
             return
 
+        if os.getenv("FORCE_LINEAR_ONE_WAY", "true").strip().lower() in ("true", "1", "yes"):
+            await asyncio.to_thread(position.try_switch_linear_one_way, self.http_session, s.symbol)
+
         if await self.adapter.if_position_open(self.http_session, s.symbol):
             send_notification_task.delay(
                 f"⚠️ Дубликат отфильтрован\n\n👤 Пользователь: {s.name} ({s.tg_id})\n📊 Символ: {s.symbol}\nℹ️ По этой монете уже ведется торговля"
@@ -308,16 +360,26 @@ class TradeSession:
             s.should_stop = True
             return
 
-        self.trailing_stop = TrailingStop(
-            symbol=s.symbol,
-            session=self.http_session,
-            trigger_percentage=TRIGGER_TS_PERCENTAGE,
-            position_side=POSITION_SIDE,
-            offset_percentage=0.1,
-        )
-
+        s.active_position_idx = None
         qty = await self.adapter.calculate_qty(s.symbol, s.algorithms_sum_for_trades, self.http_session)
+        leg_idx = _hedge_leg_position_idx(POSITION_SIDE)
         order_result = await self.adapter.place_order(s.symbol, qty, POSITION_SIDE, self.http_session)
+        if order_result and order_result.get("retCode") == 0:
+            s.active_position_idx = None
+        else:
+            logger.warning(
+                "Повтор входа Market с positionIdx=%s trade_id=%s (hedge / режим позиции)",
+                leg_idx,
+                s.trade_id,
+            )
+            order_result = await self.adapter.place_order(
+                s.symbol, qty, POSITION_SIDE, self.http_session, position_idx=leg_idx
+            )
+            if order_result and order_result.get("retCode") == 0:
+                s.active_position_idx = leg_idx
+            else:
+                s.active_position_idx = None
+
         if not order_result or order_result.get("retCode") != 0:
             logger.error("❌ Ошибка открытия позиции trade_id=%s: %s", s.trade_id, order_result)
             s.should_stop = True
@@ -327,13 +389,36 @@ class TradeSession:
             f"🚀 Алгоритм запущен!\n\n👤 Пользователь: {s.name} ({s.tg_id})\n📊 Символ: {s.symbol}\n💰 Сумма: {s.sum_for_trades} USDT\n📈 Сторона: {POSITION_SIDE}\n"
         )
 
+        self.trailing_stop = TrailingStop(
+            symbol=s.symbol,
+            session=self.http_session,
+            trigger_percentage=TRIGGER_TS_PERCENTAGE,
+            position_side=POSITION_SIDE,
+            offset_percentage=0.1,
+            position_idx=s.active_position_idx,
+        )
+
         await asyncio.sleep(1)
         position_data = await self.adapter.get_positions_by_symbol(self.http_session, s.symbol)
         if not position_data or not position_data.get("result", {}).get("list"):
             logger.error("❌ Не удалось получить позицию trade_id=%s", s.trade_id)
             s.should_stop = True
             return
-        position_info = position_data["result"]["list"][0]
+        rows = position_data["result"]["list"]
+        position_info = None
+        for row in rows:
+            sz = float(row.get("size", 0) or 0)
+            if sz <= 0:
+                continue
+            if s.active_position_idx is not None:
+                if int(row.get("positionIdx", 0) or 0) == int(s.active_position_idx):
+                    position_info = row
+                    break
+            else:
+                position_info = row
+                break
+        if position_info is None and rows:
+            position_info = rows[0]
         s.entry_price = float(position_info["avgPrice"])
         s.position_qty = float(position_info["size"])
         s.previous_avg_price = s.entry_price
@@ -342,8 +427,15 @@ class TradeSession:
         s.position_opened = True
 
         sl = calculator.calculate_stop_loss(s.entry_price, STOP_LOSS_PERCENTAGE, POSITION_SIDE)
-        await self.adapter.set_stop_loss(s.symbol, sl, self.http_session)
-        await self.adapter.place_n_limit_order(s.symbol, s.algorithms_sum_for_trades, POSITION_SIDE, s.entry_price, self.http_session)
+        await self.adapter.set_stop_loss(s.symbol, sl, self.http_session, position_idx=s.active_position_idx)
+        await self.adapter.place_n_limit_order(
+            s.symbol,
+            s.algorithms_sum_for_trades,
+            POSITION_SIDE,
+            s.entry_price,
+            self.http_session,
+            position_idx=s.active_position_idx,
+        )
         self._queue = await self.feed_hub.subscribe(s.symbol)
 
     async def _price_loop(self) -> None:
@@ -388,7 +480,13 @@ class TradeSession:
         s = self.state
         if s.current_price is None:
             return False
-        ok, _, _ = await self.adapter.set_breakeven_with_retries(s.symbol, s.current_price, self.http_session, POSITION_SIDE)
+        ok, _, _ = await self.adapter.set_breakeven_with_retries(
+            s.symbol,
+            s.current_price,
+            self.http_session,
+            POSITION_SIDE,
+            position_idx=s.active_position_idx,
+        )
         if not ok:
             return False
         if self.trailing_stop is None:

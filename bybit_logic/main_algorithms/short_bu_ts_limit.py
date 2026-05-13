@@ -43,6 +43,12 @@ previous_avg_price = None  # предыдущая средняя цена (дл�
 previous_position_size = None  # предыдущий размер позиции
 last_position_check_time = 0  # Время последней проверки позиции (в секундах)
 price_stream = None  # Объект для работы с WebSocket
+ACTIVE_POSITION_IDX = None
+
+
+def _hedge_leg_position_idx(side: str | None) -> int:
+    return 1 if (side or "").strip() == "Buy" else 2
+
 
 def price_trigger_callback():
     """
@@ -59,7 +65,8 @@ def price_trigger_callback():
     - Отправить уведомление
     """
     global entry_price, current_price, price_change_percent, pnl_usdt, http_session, trailing_stop
-    
+    global ACTIVE_POSITION_IDX
+
     logger.info("🚨 ЦЕНА ДОСТИГЛА ЦЕЛЕВОГО УРОВНЯ! Устанавливаю БУ и активирую трейлинг стоп! 🚨")
     print("=" * 50)
     print("🚨 СРАБАТЫВАНИЕ: Цена достигла целевого уровня!")
@@ -85,7 +92,7 @@ def price_trigger_callback():
     logger.info(f"📝 Устанавливаю БУ на {breakeven_price:.8g} (текущая цена: {current_price:.8g}, отступ: {CORRECTION_SL_PERCENTAGE}%)")
     
     # Устанавливаем БУ и проверяем результат
-    result = orders.set_stop_loss(SYMBOL, current_price, http_session)
+    result = orders.set_stop_loss(SYMBOL, current_price, http_session, position_idx=ACTIVE_POSITION_IDX)
     
     bu_success = False  # Флаг успешной установки БУ
     
@@ -101,7 +108,7 @@ def price_trigger_callback():
         # Пытаемся установить альтернативный БУ с большим отступом
 
         logger.info(f"📝 Пытаюсь установить альтернативный БУ на {breakeven_price:.8g}...")
-        result2 = orders.set_stop_loss(SYMBOL, breakeven_price, http_session)
+        result2 = orders.set_stop_loss(SYMBOL, breakeven_price, http_session, position_idx=ACTIVE_POSITION_IDX)
         
         if result2 and result2.get('retCode') == 0:
             logger.info(f"✅ Альтернативный БУ успешно установлен на {breakeven_price:.8g}")
@@ -342,7 +349,9 @@ def main():
     """
     global entry_price, position_qty, position_opened, http_session, price_stream
     global previous_avg_price, previous_position_size, last_position_check_time
-    
+    global trailing_stop
+    global ACTIVE_POSITION_IDX
+
     # ============================================
     # ШАГ 1: ВЫВОД НАЧАЛЬНОЙ ИНФОРМАЦИИ
     # ============================================
@@ -363,18 +372,11 @@ def main():
     http_session = session.create_session(use_demo=USE_DEMO)
     logger.info("✅ Подключение установлено")
 
-    global trailing_stop  # Объявляем, что используем глобальную переменную
+    ACTIVE_POSITION_IDX = None
+    force_one_way = os.getenv("FORCE_LINEAR_ONE_WAY", "true").strip().lower() in ("true", "1", "yes")
+    if force_one_way:
+        position.try_switch_linear_one_way(http_session, SYMBOL)
 
-    trailing_stop = TrailingStop(
-        symbol=SYMBOL,
-        session=http_session,
-        trigger_percentage=TRIGGER_TS_PERCENTAGE,  # Обновлять каждые TRIGGER_TS_PERCENTAGE%
-        position_side=POSITION_SIDE,
-        offset_percentage=0.1  # Отступ 0.1% для защиты от проскальзывания
-    )
-
-    logger.info(f"📊 Трейлинг стоп создан (шаг: {TRIGGER_TS_PERCENTAGE}%)")
-        
     # ============================================
     # ШАГ 3: ПОЛУЧЕНИЕ ТЕКУЩЕЙ ЦЕНЫ
     # ============================================
@@ -394,11 +396,40 @@ def main():
     # ШАГ 5.1: ОТКРЫТИЕ ПОЗИЦИИ
     # ============================================
     logger.info(f"📝 Открываю {POSITION_SIDE} позицию на {qty} {SYMBOL}...")
+    leg_idx = _hedge_leg_position_idx(POSITION_SIDE)
     order_result = orders.place_order(SYMBOL, qty, POSITION_SIDE, "Market", http_session)
-    
+    if order_result and order_result.get("retCode") == 0:
+        ACTIVE_POSITION_IDX = None
+    else:
+        logger.warning(
+            "Повтор входа Market с positionIdx=%s (hedge / несовпадение режима позиции)",
+            leg_idx,
+        )
+        order_result = orders.place_order(
+            SYMBOL, qty, POSITION_SIDE, "Market", http_session, position_idx=leg_idx
+        )
+        if order_result and order_result.get("retCode") == 0:
+            ACTIVE_POSITION_IDX = leg_idx
+        else:
+            ACTIVE_POSITION_IDX = None
+
     if order_result and order_result.get('retCode') == 0:
         logger.info(f"✅ Позиция успешно открыта!")
         logger.info(f"   ID ордера: {order_result.get('result', {}).get('orderId', 'N/A')}")
+
+        trailing_stop = TrailingStop(
+            symbol=SYMBOL,
+            session=http_session,
+            trigger_percentage=TRIGGER_TS_PERCENTAGE,
+            position_side=POSITION_SIDE,
+            offset_percentage=0.1,
+            position_idx=ACTIVE_POSITION_IDX,
+        )
+        logger.info(
+            "📊 Трейлинг стоп создан (шаг: %s%%, positionIdx=%s)",
+            TRIGGER_TS_PERCENTAGE,
+            ACTIVE_POSITION_IDX,
+        )
     else:
         error_msg = order_result.get('retMsg', 'Неизвестная ошибка') if order_result else 'Нет ответа от сервера'
         logger.error(f"❌ Ошибка открытия позиции: {error_msg}")
@@ -414,8 +445,21 @@ def main():
     position_data = position.get_positions_by_symbol(http_session, SYMBOL)
     
     if position_data and position_data.get('result', {}).get('list'):
-        # Извлекаем информацию о позиции
-        position_info = position_data['result']['list'][0]
+        rows = position_data["result"]["list"]
+        position_info = None
+        for row in rows:
+            sz = float(row.get("size", 0) or 0)
+            if sz <= 0:
+                continue
+            if ACTIVE_POSITION_IDX is not None:
+                if int(row.get("positionIdx", 0) or 0) == int(ACTIVE_POSITION_IDX):
+                    position_info = row
+                    break
+            else:
+                position_info = row
+                break
+        if position_info is None and rows:
+            position_info = rows[0]
         entry_price = float(position_info['avgPrice'])  # Средняя цена входа
         position_qty = float(position_info['size'])  # Размер позиции
         
@@ -438,14 +482,23 @@ def main():
     stop_loss_price = calculator.calculate_stop_loss(entry_price, STOP_LOSS_PERCENTAGE, POSITION_SIDE)
     logger.info(f"✅ Стоп-лосс установлен на {stop_loss_price}")
     try:
-        orders.set_stop_loss(SYMBOL, stop_loss_price, http_session)
+        orders.set_stop_loss(SYMBOL, stop_loss_price, http_session, position_idx=ACTIVE_POSITION_IDX)
         logger.info(f"✅ Стоп-лосс успешно установлен")
     except Exception as e:
         logger.error(f"❌ Ошибка установки стоп-лосса: {e}")
         return
 
     logger.info(f"📝 Устанавливаю {COUNT_LIMIT_ORDERS} лимитных ордеров на {SYMBOL}...")
-    place_n_limit_order = orders.place_n_limit_order(SYMBOL, USDT_AMOUNT, POSITION_SIDE, entry_price, http_session, COUNT_LIMIT_ORDERS, LIMIT_PERCENTAGE)
+    place_n_limit_order = orders.place_n_limit_order(
+        SYMBOL,
+        USDT_AMOUNT,
+        POSITION_SIDE,
+        entry_price,
+        http_session,
+        COUNT_LIMIT_ORDERS,
+        LIMIT_PERCENTAGE,
+        position_idx=ACTIVE_POSITION_IDX,
+    )
 
     # ✅ ПРАВИЛЬНАЯ ПРОВЕРКА: place_n_limit_order - это СПИСОК!
     if place_n_limit_order is None:

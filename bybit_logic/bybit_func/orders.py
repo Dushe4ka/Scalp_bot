@@ -35,16 +35,27 @@ def place_order(
         logger.exception("Error placing order (%s %s): %s", symbol, side, e)
         return None
 
-def place_limit_order(symbol, qty, side, price, session: HTTP):
+def place_limit_order(
+    symbol,
+    qty,
+    side,
+    price,
+    session: HTTP,
+    *,
+    position_idx: int | None = None,
+):
     try:
-        return session.place_order(
-            category="linear",
-            symbol=symbol.upper(),
-            side=side,
-            orderType="Limit",
-            qty=qty,
-            price=price
-        )
+        kwargs: dict = {
+            "category": "linear",
+            "symbol": symbol.upper(),
+            "side": side,
+            "orderType": "Limit",
+            "qty": qty,
+            "price": price,
+        }
+        if position_idx is not None:
+            kwargs["positionIdx"] = position_idx
+        return session.place_order(**kwargs)
     except Exception as e:
         logger.error(f"Error placing limit order: {e}")
         return None
@@ -114,7 +125,17 @@ def _normalize_stop_loss_price(
         normalized = _round_price_by_tick(current_price - tick_size, tick_size, "down")
     return normalized
 
-def place_n_limit_order(symbol, base_usdt_amount, side, base_price, session: HTTP, n: int, limit_percentage: float):
+def place_n_limit_order(
+    symbol,
+    base_usdt_amount,
+    side,
+    base_price,
+    session: HTTP,
+    n: int,
+    limit_percentage: float,
+    *,
+    position_idx: int | None = None,
+):
     """
     Размещает n лимитных ордеров с экспоненциальным увеличением суммы и шагом процентного отличия
     
@@ -199,7 +220,9 @@ def place_n_limit_order(symbol, base_usdt_amount, side, base_price, session: HTT
                 logger.info(f"  🔢 Количество: {qty}")
                 
                 # Размещаем ордер
-                result = place_limit_order(symbol, qty, side, limit_price, session)
+                result = place_limit_order(
+                    symbol, qty, side, limit_price, session, position_idx=position_idx
+                )
                 
                 if result and result.get('retCode') == 0:
                     results.append({

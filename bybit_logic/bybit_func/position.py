@@ -222,7 +222,8 @@ def result_position_info_data(symbol: str, session: HTTP) -> Optional[Dict[str, 
 
 def switch_position_mode(session: HTTP, symbol: str, position_mode: int = 3) -> None:
     """
-    Переключает режим позиции в режим хеджирования
+    Переключает режим позиции для linear-символа (UTA V5).
+    mode: 0 = one-way, 3 = hedge.
     """
     try:
         symbol = symbol.upper()
@@ -240,6 +241,25 @@ def switch_position_mode(session: HTTP, symbol: str, position_mode: int = 3) -> 
             return
         logger.error(f"Ошибка при переключении режима позиции: {e}")
         raise Exception(f"Ошибка при переключении режима позиции: {e}") from e
+
+
+def try_switch_linear_one_way(session: HTTP, symbol: str) -> bool:
+    """
+    Пытается перевести символ в one-way (mode=0) перед новой позицией.
+    Не бросает исключения: при открытых позициях или ограничениях биржи вернёт False.
+    """
+    try:
+        switch_position_mode(session, symbol, 0)
+        logger.info("Режим позиции для %s: one-way (mode=0)", symbol.upper())
+        return True
+    except Exception as e:
+        logger.warning(
+            "Не удалось переключить %s в one-way (часто из-за открытых позиций по символу): %s — "
+            "продолжаю с текущим режимом; при hedge ордер уйдёт с positionIdx.",
+            symbol.upper(),
+            e,
+        )
+        return False
 
 def set_leverage(
     session: HTTP,
