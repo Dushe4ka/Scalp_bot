@@ -2,6 +2,10 @@ from fastapi import APIRouter, HTTPException, Request
 from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest
 from logger_config import setup_logger
 from celery_app.tasks.short_3_limit import short_3_limit
+from celery_app.tasks.short_3_limit_nomulti import (
+    get_nomulti_short_3_params,
+    nomulti_short_3_limit_task,
+)
 from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
 from celery_app.tasks.short_bu_ts_limit_nomulti import nomulti_short_bu_ts_limit_task
 from celery_app.tasks.custom_algo_nomulti import nomulti_custom_algo_task
@@ -91,6 +95,35 @@ async def short_3_limit_endpoint(request: Request):
         raise
     except Exception as e:
         logger.error(f"❌ Ошибка запуска задачи: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/nomulti_short_3_limit")
+async def nomulti_short_3_limit_endpoint(request: Request):
+    """Запуск short_3_limit для одного аккаунта (TG_ID, USDT_AMOUNT, API_KEY и др. из .env)."""
+    try:
+        body = await request.body()
+        symbol = body.decode("utf-8").strip().upper()
+        symbol = validate_and_clean_symbol(symbol)
+        logger.info("nomulti_short_3_limit: символ после валидации: %s", symbol)
+        if not symbol:
+            raise HTTPException(status_code=400, detail="Символ не может быть пустым")
+
+        try:
+            get_nomulti_short_3_params()
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve)) from ve
+
+        task = nomulti_short_3_limit_task.delay(symbol=symbol)
+        return {
+            "symbol": symbol,
+            "status": "started",
+            "task_id": task.id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Ошибка постановки nomulti_short_3_limit: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -32,7 +32,11 @@ if __name__ == "__main__":
             f"🔻{base_url}/health\n\n"
             f"🔻{base_url}/monitoring\n\n"
             f"🔻{base_url}/short_3_limit\n\n"
-            f"🔻{base_url}/hedge_long_short_bu_ts"
+            f"🔻{base_url}/hedge_long_short_bu_ts\n\n"
+            f"— Nomulti (один аккаунт, сигнал POST телом = символ, кроме custom):\n"
+            f"🔻{base_url}/nomulti_short_3_limit\n\n"
+            f"🔻{base_url}/nomulti_short_bu_ts_limit\n\n"
+            f"🔻{base_url}/nomulti_custom_algo"
         )
         send_notification_task.delay(notification_text)
         logger.info(f"✅ Уведомление отправлено подписчикам о запуске сервера")
