@@ -3,7 +3,7 @@ from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest
 from logger_config import setup_logger
 from celery_app.tasks.short_3_limit import short_3_limit
 from celery_app.tasks.short_3_limit_nomulti import (
-    get_nomulti_short_3_params,
+    ensure_nomulti_short_bu_ts_env,
     nomulti_short_3_limit_task,
 )
 from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
@@ -100,7 +100,7 @@ async def short_3_limit_endpoint(request: Request):
 
 @router.post("/nomulti_short_3_limit")
 async def nomulti_short_3_limit_endpoint(request: Request):
-    """Запуск short_3_limit для одного аккаунта (TG_ID, USDT_AMOUNT, API_KEY и др. из .env)."""
+    """Запуск short BU TS limit для одного аккаунта: `short_bu_ts_limit` по ключам из .env, символ из тела."""
     try:
         body = await request.body()
         symbol = body.decode("utf-8").strip().upper()
@@ -110,7 +110,7 @@ async def nomulti_short_3_limit_endpoint(request: Request):
             raise HTTPException(status_code=400, detail="Символ не может быть пустым")
 
         try:
-            get_nomulti_short_3_params()
+            ensure_nomulti_short_bu_ts_env()
         except ValueError as ve:
             raise HTTPException(status_code=400, detail=str(ve)) from ve
 

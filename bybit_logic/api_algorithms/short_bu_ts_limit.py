@@ -18,7 +18,9 @@ logger = setup_logger(__name__)
 
 # ============================================
 # SYMBOL = os.getenv("SYMBOL").upper()
+# Сумма из .env — как для пользователя в логах/Telegram; для расчёта qty и лимитов — ×10 (см. short_bu_ts_limit_multiuser).
 USDT_AMOUNT = float(os.getenv("SHORT_BU_TS_LIMIT_USDT_AMOUNT", os.getenv("USDT_AMOUNT")))
+ALGORITHMS_SUM_FOR_TRADES = USDT_AMOUNT * 10
 TRIGGER_PERCENTAGE = float(os.getenv("TRIGGER_PERCENTAGE"))
 TRIGGER_TS_PERCENTAGE = float(os.getenv("TRIGGER_TS_PERCENTAGE"))
 STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
@@ -219,17 +221,11 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
                 price_stream.stop()
             should_stop = True  # ✅ Устанавливаем флаг остановки
 
-            # ------------------------------------------
-            # Отправка уведомления подписчикам
-            # ------------------------------------------
-            pnl_sign = "+" if pnl_usdt >= 0 else ""
-            notification_text = (
-                f"🔄 Позиция закрыта\n\n"
-                f"📊 Символ: {SYMBOL}\n"
-                f"💰 Цена входа: {entry_price:.8g}\n"
-                f"💵 Финальный PnL: {pnl_sign}{pnl_usdt:.2f} USDT\n"
-                f"📊 Изменение: {price_change_percent:.2f}%"
-            )
+            # Данные с биржи (get_closed_pnl), как POST /result_position_info_by_symbol
+            exchange_report = position.result_position_info(SYMBOL, http_session)
+            if not exchange_report:
+                exchange_report = "❌ Позиция не найдена"
+            notification_text = f"🔄 Позиция закрыта\n\n{exchange_report}"
             send_notification_task.delay(notification_text)
             completion_notified = True
             logger.info(f"✅ Уведомление отправлено подписчикам о закрытии позиции")
@@ -528,8 +524,10 @@ def start_trading(symbol: str):
     # ============================================
     # ШАГ 4: РАСЧЕТ КОЛИЧЕСТВА МОНЕТ
     # ============================================
-    logger.info(f"🧮 Рассчитываю количество монет для суммы {USDT_AMOUNT} USDT...")
-    qty = calculator.calculate_qty(SYMBOL, USDT_AMOUNT, http_session)
+    logger.info(
+        f"🧮 Рассчитываю количество монет для суммы {USDT_AMOUNT} (* 10) USDT..."
+    )
+    qty = calculator.calculate_qty(SYMBOL, ALGORITHMS_SUM_FOR_TRADES, http_session)
     logger.info(f"✅ Рассчитанное количество: {qty} {SYMBOL}")
     
     # ============================================
@@ -643,7 +641,7 @@ def start_trading(symbol: str):
     logger.info(f"📝 Устанавливаю {COUNT_LIMIT_ORDERS} лимитных ордеров на {SYMBOL}...")
     place_n_limit_order = orders.place_n_limit_order(
         SYMBOL,
-        USDT_AMOUNT,
+        ALGORITHMS_SUM_FOR_TRADES,
         POSITION_SIDE,
         entry_price,
         http_session,

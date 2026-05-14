@@ -5,7 +5,7 @@
 from bybit_logic.bybit_func import session, position, market, calculator, orders, stop_trade
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
-from celery_app.tasks.notifications import send_notification_task, send_notification_to_user_task
+from celery_app.tasks.notifications import send_notification_to_user_task
 from history_trades_repository import history_trades_db, build_trade_doc
 from logger_config import setup_logger
 import time
@@ -232,22 +232,14 @@ def check_and_update_position(check_interval: float = 1.0) -> bool:
                 price_stream.stop()
             should_stop = True  # ✅ Устанавливаем флаг остановки
 
-            closed_info = persist_closed_trade()
-            info = closed_info or {}
-            info_pnl = float(info.get("pnl_usdt") or 0.0)
-            info_entry = float(info.get("entry_price") or 0.0)
-            info_exit = float(info.get("exit_price") or 0.0)
-            info_symbol = str(info.get("symbol") or SYMBOL)
-            info_side = "Лонг" if info.get("side") == "Buy" else "Шорт"
-            pnl_sign = "+" if info_pnl >= 0 else ""
+            persist_closed_trade()
+            # Тот же источник, что POST /result_position_info_by_symbol (get_closed_pnl / позиция), не ручная сборка по полям сделки.
+            exchange_report = position.result_position_info(SYMBOL, http_session)
+            if not exchange_report:
+                exchange_report = "❌ Позиция не найдена"
             notification_text = (
                 f"🔄 Позиция закрыта\n\n"
-                f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})\n"
-                f"📊 Символ: {info_symbol}\n"
-                f"📈 Сторона: {info_side}\n"
-                f"💰 Цена входа: {info_entry:.8g}\n"
-                f"💸 Цена выхода: {info_exit:.8g}\n"
-                f"💵 Финальный PnL: {pnl_sign}{info_pnl:.2f} USDT"
+                f"{exchange_report}"
             )
             send_notification_to_user_task.delay(USER_TG_ID, notification_text)
             logger.info("✅ Персональное уведомление отправлено пользователю tg_id=%s", USER_TG_ID)
@@ -524,15 +516,15 @@ def start_trading(
         logger.warning(f"⚠️ По символу {SYMBOL} уже есть открытая позиция!")
         logger.warning(f"🛑 Алгоритм не будет запущен - дубликат отфильтрован")
         
-        # Отправка уведомления подписчикам
+        # Уведомление в личку пользователю
         notification_text = (
             f"⚠️ Дубликат отфильтрован\n\n"
             f"👤 Пользователь: {USER_NAME} ({USER_TG_ID})\n"
             f"📊 Символ: {SYMBOL}\n"
             f"ℹ️ По этой монете уже ведется торговля"
         )
-        send_notification_task.delay(notification_text)
-        logger.info(f"✅ Уведомление отправлено подписчикам о фильтрации дубликата")
+        send_notification_to_user_task.delay(USER_TG_ID, notification_text)
+        logger.info("✅ Уведомление о дубликате отправлено в личку tg_id=%s", USER_TG_ID)
         return
     
     logger.info(f"✅ Открытых позиций по {SYMBOL} не найдено, продолжаю запуск алгоритма")
@@ -578,7 +570,7 @@ def start_trading(
         logger.info(f"   ID ордера: {order_result.get('result', {}).get('orderId', 'N/A')}")
 
         # ------------------------------------------
-        # Отправка уведомления подписчикам
+        # Уведомление в личку пользователю
         # ------------------------------------------
         notification_text = (
         f"🚀 Алгоритм запущен!\n\n"
@@ -587,8 +579,8 @@ def start_trading(
         f"💰 Сумма: {USER_SUM_FOR_TRADES} USDT\n"
         f"📈 Сторона: {POSITION_SIDE}\n"
         )
-        send_notification_task.delay(notification_text)
-        logger.info(f"✅ Уведомление отправлено подписчикам")
+        send_notification_to_user_task.delay(USER_TG_ID, notification_text)
+        logger.info("✅ Уведомление о запуске отправлено в личку tg_id=%s", USER_TG_ID)
 
         trailing_stop = TrailingStop(
             symbol=SYMBOL,
