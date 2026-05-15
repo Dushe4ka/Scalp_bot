@@ -120,12 +120,15 @@ async def send_to_subscribers_async(text: str) -> dict:
     }
 
 
-def send_to_subscribers_sync(text: str) -> dict:
+def send_to_subscribers_sync(text: str, *, bot_token: str | None = None) -> dict:
     """
     СИНХРОННАЯ версия отправки сообщений подписчикам
     Используется в Celery задачах и других синхронных контекстах
     Args:
         text: Текст сообщения для отправки
+        bot_token: токен бота Telegram; по умолчанию TELEGRAM_BOT_TOKEN из config.
+                   Для nomulti задайте тот же токен, что у бота, через который подписывались
+                   (например через env CELERY_SUBSCRIBERS_BOT_TOKEN в notifications).
         
     Returns:
         dict: Статистика отправки с ключами:
@@ -134,6 +137,10 @@ def send_to_subscribers_sync(text: str) -> dict:
             - failed: количество неудачных отправок
             - errors: список ошибок с user_id
     """
+    token = (bot_token or TELEGRAM_BOT_TOKEN or "").strip()
+    if not token:
+        logger.error("send_to_subscribers_sync: не задан bot_token и TELEGRAM_BOT_TOKEN")
+        return {"total": 0, "sent": 0, "failed": 0, "errors": [{"error": "missing_bot_token"}]}
     subscribers = get_subscribers()
     total = len(subscribers)
     sent = 0
@@ -152,7 +159,7 @@ def send_to_subscribers_sync(text: str) -> dict:
     logger.info(f"Начало синхронной рассылки сообщения {total} подписчикам")
     
     # Telegram Bot API endpoint
-    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     
     for user_id in subscribers:
         delivered = False
