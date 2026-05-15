@@ -10,7 +10,7 @@ from logger_config import setup_logger
 import time
 import os
 import dotenv
-from config import TRADING_MARGIN_MODE
+from config import TRADING_MARGIN_MODE, USE_DEMO as USE_DEMO_FROM_ENV
 
 dotenv.load_dotenv()
 
@@ -26,7 +26,8 @@ TRIGGER_TS_PERCENTAGE = float(os.getenv("TRIGGER_TS_PERCENTAGE"))
 STOP_LOSS_PERCENTAGE = float(os.getenv("STOP_LOSS_PERCENTAGE"))
 CORRECTION_SL_PERCENTAGE = float(os.getenv("CORRECTION_SL_PERCENTAGE"))
 POSITION_SIDE = os.getenv("POSITION_SIDE")
-USE_DEMO = False
+# По умолчанию из .env (config.USE_DEMO); в start_trading() можно передать use_demo явно.
+USE_DEMO = USE_DEMO_FROM_ENV
 LEVERAGE = 10
 COUNT_LIMIT_ORDERS = int(os.getenv("COUNT_LIMIT_ORDERS"))
 LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
@@ -395,13 +396,25 @@ def handle_ticker_price(message):
         logger.error(f"Ошибка при обработке обновления цены: {e}")
 
 
-def start_trading(symbol: str):
+def _resolve_use_demo(use_demo: bool | None) -> bool:
+    """Явный аргумент start_trading имеет приоритет над USE_DEMO из .env."""
+    if use_demo is not None:
+        return bool(use_demo)
+    return bool(USE_DEMO_FROM_ENV)
+
+
+def start_trading(symbol: str, *, use_demo: bool | None = None):
     """
     Главная функция - выполняет всю работу:
     1. Открывает позицию
     2. Подключается к WebSocket для мониторинга цены
     3. Следит за изменением цены в реальном времени
+
+    Args:
+        symbol: торговая пара
+        use_demo: True/False — demo Bybit (DEMO_API_*); None — взять из .env (USE_DEMO)
     """
+    effective_use_demo = _resolve_use_demo(use_demo)
     global entry_price, position_qty, position_opened, http_session, price_stream
     global previous_avg_price, previous_position_size, last_position_check_time
     global SYMBOL, should_stop, trigger_called, current_price, price_change_percent
@@ -441,6 +454,7 @@ def start_trading(symbol: str):
     logger.info("🚀 Запуск мониторинга цены с автоматическим открытием позиции")
     logger.info("=" * 50)
     logger.info(f"📊 Символ: {SYMBOL}")
+    logger.info(f"🔑 Режим API: {'demo' if effective_use_demo else 'mainnet'} (use_demo={effective_use_demo})")
     logger.info(f"💰 Сумма: {USDT_AMOUNT} USDT")
     logger.info(f"📈 Сторона: {POSITION_SIDE} ({'Покупка' if POSITION_SIDE == 'Buy' else 'Продажа'})")
     logger.info(
@@ -454,7 +468,7 @@ def start_trading(symbol: str):
     # ШАГ 2: ПОДКЛЮЧЕНИЕ К БИРЖЕ 
     # ============================================
     logger.info("🔌 Подключаюсь к бирже Bybit...")
-    http_session = session.create_session(use_demo=USE_DEMO)
+    http_session = session.create_session(use_demo=effective_use_demo)
     logger.info("✅ Подключение установлено")
 
     logger.info(f"⚙️ Устанавливаю режим маржи аккаунта: {TRADING_MARGIN_MODE}...")

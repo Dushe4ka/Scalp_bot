@@ -82,7 +82,7 @@ class ProcSummary:
 
 
 def trading_worker(symbol: str) -> None:
-    start_trading(symbol)
+    start_trading(symbol, use_demo=True)
 
 
 def read_proc_stat(pid: int) -> tuple[float, float] | None:
@@ -383,6 +383,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # Пример запуска:
-    # python3 tests/load/short_bu_ts_limit_multiprocess_benchmark.py --processes 10 --minutes 15
+    # Пример (всегда demo API: use_demo=True):
+    # python3 tests/load/short_bu_ts_limit_multiprocess_benchmark.py --processes 3 --minutes 5
     main()
