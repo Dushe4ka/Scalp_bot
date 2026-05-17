@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bybit_logic.api_algorithms.short_bu_ts_limit import start_trading
+from bybit_logic.bybit_func import session as bybit_session, stop_trade
 
 
 # Можно расширять список монет под вашу стратегию.
@@ -83,6 +84,12 @@ class ProcSummary:
 
 def trading_worker(symbol: str) -> None:
     start_trading(symbol, use_demo=True)
+
+
+def cleanup_demo_trading() -> None:
+    """Отмена ордеров и закрытие позиций на demo (как POST /stop_trading_all)."""
+    http_session = bybit_session.create_session(use_demo=True)
+    stop_trade.stop_all_trading(http_session)
 
 
 def read_proc_stat(pid: int) -> tuple[float, float] | None:
@@ -343,7 +350,15 @@ def main() -> None:
 
             time.sleep(args.interval)
     finally:
-        # Мягкая остановка
+        # 1) Сначала биржа: отмена ордеров и закрытие позиций (пока процессы ещё живы).
+        print("Останавливаем demo-торговлю на Bybit (ордера + позиции)...")
+        try:
+            cleanup_demo_trading()
+            print("Demo-торговля остановлена: ордера отменены, позиции закрыты.")
+        except Exception as exc:
+            print(f"WARNING: не удалось выполнить stop_all_trading: {exc}")
+
+        # 2) Затем алгоритмы: SIGINT → завершение WebSocket и процессов.
         for _, proc in procs:
             if proc.is_alive():
                 try:
@@ -353,7 +368,6 @@ def main() -> None:
 
         time.sleep(2.0)
 
-        # Жесткая остановка зависших
         for _, proc in procs:
             if proc.is_alive():
                 proc.terminate()
@@ -379,7 +393,8 @@ def main() -> None:
         sys_mem_used_mb_samples=sys_mem_used_mb_samples,
     )
 
-    print(f"Benchmark finished. Report saved to: {args.output}")
+    report_path = Path(args.output).resolve()
+    print(f"Benchmark finished. Report saved to: {report_path}")
 
 
 if __name__ == "__main__":
