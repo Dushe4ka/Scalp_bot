@@ -1,5 +1,7 @@
 # Load tests
 
+Перед demo на Bybit: [docs/multiuser_demo_testing.md](../docs/multiuser_demo_testing.md).
+
 ## Phase 1 (async, single process)
 
 ```bash

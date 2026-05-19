@@ -20,6 +20,7 @@
 | Orchestrator | `celery_app/trade_orchestrator.py` | Распределение load |
 | Router task | `celery_app/tasks/short_3_limit.py` | assign → engine queue |
 | Execute task | `celery_app/tasks/engine_execute_trade.py` | submit_trade в воркере |
+| Symbol refcount | `bybit_logic/feeds/symbol_session_ref.py` | open/close WS по числу сессий |
 
 ## Поток сигнала
 
@@ -29,12 +30,27 @@ POST /short_3_limit
       → orchestrator.assign_trade()  # INCR engine:{id}:load
       → engine_execute_trade → queue trade_engine_{id}
   → engine worker (CELERY_ENGINE_ID=id, concurrency=1)
-      → AsyncTradeEngine.submit_trade()
-      → TradeSession (цена из Redis или local WS)
-  → при закрытии: DECR load, Telegram
+      → AsyncTradeEngine.submit_trade() → TradeSession
+      → feed_hub.subscribe(symbol)
+          → INCR market:feed:ref:{SYMBOL}
+          → если ref 0→1: PUBLISH market:feed:ensure → feed открывает WS
+      → цена из Redis market:ticker:{SYMBOL}
+  → при закрытии позиции:
+      → unsubscribe → DECR market:feed:ref
+      → если ref 1→0: PUBLISH market:feed:release → feed закрывает WS
+      → DECR engine load, Telegram, history_trades
 ```
 
+**WS не открывается при старте feed** — только когда есть хотя бы одна активная сессия на символ.
+
 ## Redis
+
+### Динамическая подписка на символ
+
+- `INCR market:feed:ref:BTCUSDT` — глобальный счётчик активных сессий (все engine)
+- `PUBLISH market:feed:ensure` — открыть WS (когда ref: 0→1)
+- `PUBLISH market:feed:release` — закрыть WS (когда ref: 1→0, последняя сделка закрыта)
+- `SADD market:feed:ref_symbols` — символы с ref>0 (восстановление feed после рестарта)
 
 ### Цена
 
@@ -62,7 +78,26 @@ POST /short_3_limit
 | `PRICE_FEED_STALE_SEC` | 5 | Stale тик feed |
 | `PRICE_FEED_DOWN_SEC` | 15 | Оба feed down |
 | `TRADE_SUBMIT_STAGGER_SEC` | 0.03 | Пауза между enqueue в API |
-| `MARKET_FEED_SYMBOLS` | BTCUSDT,... | Символы для feed service |
+| `MARKET_FEED_SYMBOL_IDLE_SEC` | 3600 | Закрыть WS символа после простоя (0 = не закрывать) |
+
+Символы **не задаются списком** в `.env`. Refcount и каналы `ensure` / `release` — в `bybit_logic/feeds/symbol_session_ref.py`.
+
+## Redis в Docker (мониторинг)
+
+```bash
+docker ps | grep redis
+docker exec -it <container> redis-cli -a 'PASSWORD' -p 6379
+```
+
+```redis
+GET market:feed:status
+GET market:feed:ref:BTCUSDT
+GET market:last:BTCUSDT
+GET engine:0:load
+SUBSCRIBE market:ticker:BTCUSDT
+```
+
+Подробный demo-тест multiuser: [multiuser_demo_testing.md](multiuser_demo_testing.md).
 
 ## Запуск (production-like)
 
@@ -112,7 +147,8 @@ python -m server_api.main
 |---------|----------|
 | Все сделки `queued` | Запустить engine workers, проверить `engine:{id}:alive` |
 | `load` завис после crash | `reaper_stale_engines()` или перезапуск воркера |
-| Нет тиков | Проверить `python -m services.market_price_feed`, Redis |
+| Нет тиков | Feed запущен? `GET market:feed:ref:SYMBOL` > 0? `SUBSCRIBE market:ticker:SYMBOL` |
+| WS не закрылся | `GET market:feed:ref:SYMBOL` должен быть 0; смотреть лог feed `Stopped WS` |
 | Rate limit Bybit | Увеличить `TRADE_SUBMIT_STAGGER_SEC` |
 
 ## Тесты и бенчмарки
@@ -120,6 +156,7 @@ python -m server_api.main
 См. [tests/load/README.md](../tests/load/README.md).
 
 ```bash
-python -m unittest tests.test_trade_orchestrator tests.test_redis_market_keys tests.test_dual_feed_failover
+python -m unittest tests.test_trade_orchestrator tests.test_redis_market_keys \
+  tests.test_dual_feed_failover tests.test_redis_price_subscriber tests.test_symbol_session_ref -v
 python -m tests.load.phase2_sharding_benchmark --sessions 60 --mode orchestrator
 ```

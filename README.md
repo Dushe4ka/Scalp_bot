@@ -97,9 +97,13 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 1. FastAPI читает символ, для каждого подписчика ставит `short_3_limit` (с `stagger`).
 2. `short_3_limit` → `trade_orchestrator.assign_trade()` → `engine_execute_trade` на очередь `trade_engine_{id}`.
 3. Engine worker (`CELERY_ENGINE_ID`, `concurrency=1`, max 30 сессий) → `submit_trade` → `TradeSession`.
-4. Цена: Redis feed (primary/backup) или local WS fallback.
-4. При `%` БУ → trailing stop (`bybit_logic/bybit_func/trailing_stop.py`).
-5. При закрытии позиции → `history_trades`, Telegram, отписка от hub, снятие idempotency.
+4. Цена: при `subscribe` → refcount в Redis → feed открывает WS на символ → `market:ticker:{SYMBOL}`; при `feed:down` — local WS в engine.
+5. При `%` БУ → trailing stop (`bybit_logic/bybit_func/trailing_stop.py`).
+6. При закрытии → `history_trades`, Telegram, `unsubscribe`, refcount 0 → feed закрывает WS.
+
+**Логи по аккаунту:** в терминале engine worker — строки `📊 [tg_id:SYMBOL] …` (интервал `PNL_LOG_INTERVAL` в `.env`).
+
+**Demo-тест multiuser:** [docs/multiuser_demo_testing.md](docs/multiuser_demo_testing.md)
 
 **Nomulti** — та же логика, один `tg_id` и ключи из `.env`.
 
@@ -112,7 +116,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | 10 sync-процессов | ~1280 MB | ~100% |
 | 10 async-сессий (1 процесс) | ~143 MB | ~50% |
 
-При **100 подписчиках на один символ**: один WS на монету в hub (при `--concurrency=1` на `trade_user`).
+При **100 подписчиках на один символ**: один WS на монету в **feed** (пока есть активные сессии), не 100 WS.
 
 Нагрузочные тесты: `tests/load/short_bu_ts_limit_async_benchmark.py`, `tests/load/short_bu_ts_limit_multiprocess_benchmark.py`.
 

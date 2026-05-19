@@ -133,9 +133,11 @@ def assign_trade(
     Pick least-loaded alive engine and reserve a slot (INCR load).
     Returns dict with engine_id, trade_id, status.
     """
+    sym = symbol.upper()
+
     ensure_engine_registry()
     client = _client()
-    trade_id = trade_id or f"{tg_id}:{symbol.upper()}:{uuid.uuid4().hex[:10]}"
+    trade_id = trade_id or f"{tg_id}:{sym}:{uuid.uuid4().hex[:10]}"
     ids = sorted(client.smembers(KEY_ENGINE_IDS) or [], key=lambda x: int(x))
     if not ids:
         return {"status": "error", "error": "no engines registered", "trade_id": trade_id}

@@ -32,13 +32,13 @@ async def short_3_limit_endpoint(request: Request):
             raise HTTPException(status_code=400, detail="Символ не может быть пустым")
         
         users = await db.list_trading_candidates()
-        queued = 0
         skipped_no_keys = 0
         skipped_stop_trading = 0
         skipped_invalid_sum = 0
-        task_ids: list[str] = []
+        trade_jobs: list[dict] = []
 
-        for index, user in enumerate(users):
+        # 1) Сначала только проверка Mongo — кто реально может торговать
+        for user in users:
             bybit_data = user.get("bybit_data") or {}
             api_key = (bybit_data.get("api_key") or "").strip()
             api_secret = (bybit_data.get("api_secret") or "").strip()
@@ -61,22 +61,35 @@ async def short_3_limit_endpoint(request: Request):
                 skipped_invalid_sum += 1
                 continue
 
-            tg_id = int(user["tg_id"])
-            name = user.get("name", "")
-            countdown = index * TRADE_SUBMIT_STAGGER_SEC if TRADE_SUBMIT_STAGGER_SEC > 0 else 0
-            task = short_3_limit.apply_async(
-                kwargs={
+            trade_jobs.append(
+                {
                     "symbol": symbol,
-                    "tg_id": tg_id,
-                    "name": name,
+                    "tg_id": int(user["tg_id"]),
+                    "name": user.get("name", ""),
                     "api_key": api_key,
                     "api_secret": api_secret,
                     "sum_for_trades": sum_for_trades,
-                },
-                countdown=countdown,
+                }
             )
-            queued += 1
-            task_ids.append(task.id)
+
+        queued = len(trade_jobs)
+        task_ids: list[str] = []
+
+        # 2) Есть кому торговать → один WS на символ (feed), затем Celery
+        if queued > 0:
+            from bybit_logic.feeds.feed_symbol_request import request_feed_symbol
+
+            request_feed_symbol(symbol)
+            logger.info(
+                "📡 Feed WS requested for %s before enqueue (%s user(s))",
+                symbol,
+                queued,
+            )
+
+            for index, job in enumerate(trade_jobs):
+                countdown = index * TRADE_SUBMIT_STAGGER_SEC if TRADE_SUBMIT_STAGGER_SEC > 0 else 0
+                task = short_3_limit.apply_async(kwargs=job, countdown=countdown)
+                task_ids.append(task.id)
 
         logger.info(
             "🚀 short_3_limit enqueued for symbol=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s",

@@ -17,6 +17,10 @@ from bybit_logic.feeds.feed_config import (
 from bybit_logic.feeds.price_source import PriceSourceMode
 from bybit_logic.feeds.redis_market_keys import FeedStatus
 from bybit_logic.feeds.redis_price_subscriber import RedisPriceSubscriber, get_feed_status
+from bybit_logic.feeds.symbol_session_ref import (
+    acquire_symbol_price_session,
+    release_symbol_price_session,
+)
 from logger_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -87,22 +91,24 @@ class MarketFeedHub:
             if symbol not in self._symbols:
                 self._symbols[symbol] = {
                     "queues": set(),
+                    "queue_subs": {},
                     "local_stream": None,
                     "local_started": False,
-                    "redis_fanout_task": None,
                 }
             entry = self._symbols[symbol]
             entry["queues"].add(queue)
+            entry["queue_subs"][id(queue)] = sub
 
         mode = self._current_mode()
         self._mode = mode
 
         if mode == PriceSourceMode.REDIS and PRICE_FEED_REDIS_ENABLED:
+            await asyncio.to_thread(acquire_symbol_price_session, symbol)
             sub.redis_sub = RedisPriceSubscriber(symbol, self._loop)
             await sub.redis_sub.start()
             fanout = asyncio.create_task(self._redis_fanout(sub, entry))
             with self._lock:
-                entry["redis_fanout_task"] = fanout
+                entry["queue_subs"][id(queue)] = (sub, fanout)
         else:
             await self._ensure_local_stream(symbol, entry)
 
@@ -179,11 +185,22 @@ class MarketFeedHub:
 
     async def unsubscribe(self, symbol: str, queue: asyncio.Queue[float]) -> None:
         symbol = symbol.upper()
+        release_feed = False
         with self._lock:
             entry = self._symbols.get(symbol)
             if not entry:
                 return
             entry["queues"].discard(queue)
+            pair = entry.get("queue_subs", {}).pop(id(queue), None)
+            if pair:
+                sub, fanout = pair
+                if fanout is not None:
+                    fanout.cancel()
+                if sub.redis_sub is not None:
+                    try:
+                        await sub.redis_sub.stop()
+                    except Exception:
+                        pass
             if entry["queues"]:
                 return
             stream = entry.get("local_stream")
@@ -192,10 +209,10 @@ class MarketFeedHub:
                     stream.stop()
                 except Exception:
                     pass
-            task = entry.get("redis_fanout_task")
-            if task is not None:
-                task.cancel()
             self._symbols.pop(symbol, None)
+            release_feed = True
+        if release_feed:
+            await asyncio.to_thread(release_symbol_price_session, symbol)
 
     @property
     def mode(self) -> PriceSourceMode:
