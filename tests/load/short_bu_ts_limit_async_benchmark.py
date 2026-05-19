@@ -289,6 +289,11 @@ def main() -> None:
         default=int(os.getenv("TG_ID", "999001")),
         help="tg_id для всех сессий (разные символы — разные idempotency keys).",
     )
+    parser.add_argument(
+        "--via-orchestrator",
+        action="store_true",
+        help="Только assign через trade_orchestrator (без submit_trade). Сравнение с Phase 2.",
+    )
     args = parser.parse_args()
 
     if args.sessions <= 0:
@@ -299,6 +304,32 @@ def main() -> None:
         raise ValueError("--interval должен быть > 0")
     if args.stagger < 0:
         raise ValueError("--stagger не может быть < 0")
+
+    if args.via_orchestrator:
+        from celery_app.trade_orchestrator import (
+            assign_trade,
+            ensure_engine_registry,
+            get_all_engine_loads,
+            register_engine,
+        )
+        from bybit_logic.feeds.feed_config import TRADE_ENGINE_COUNT
+
+        ensure_engine_registry(TRADE_ENGINE_COUNT)
+        for i in range(TRADE_ENGINE_COUNT):
+            register_engine(i)
+        for i in range(args.sessions):
+            assign_trade(
+                symbol="BTCUSDT",
+                tg_id=args.tg_id + i,
+                name="async-bench",
+                api_key=f"key{i}",
+                api_secret=f"sec{i}",
+                sum_for_trades=10.0,
+            )
+        loads = get_all_engine_loads()
+        print(f"=== ORCHESTRATOR ASSIGN ONLY: {args.sessions} sessions, engines={TRADE_ENGINE_COUNT} ===")
+        print(f"loads: {loads}")
+        return
 
     engine_module.USE_DEMO = True
 

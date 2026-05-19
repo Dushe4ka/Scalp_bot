@@ -13,6 +13,7 @@ from server_api.utils import validate_and_clean_symbol
 from config import USE_DEMO
 from users_repository import db
 from custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
+from bybit_logic.feeds.feed_config import TRADE_SUBMIT_STAGGER_SEC
 
 router = APIRouter()
 logger = setup_logger(__name__)
@@ -37,7 +38,7 @@ async def short_3_limit_endpoint(request: Request):
         skipped_invalid_sum = 0
         task_ids: list[str] = []
 
-        for user in users:
+        for index, user in enumerate(users):
             bybit_data = user.get("bybit_data") or {}
             api_key = (bybit_data.get("api_key") or "").strip()
             api_secret = (bybit_data.get("api_secret") or "").strip()
@@ -62,13 +63,17 @@ async def short_3_limit_endpoint(request: Request):
 
             tg_id = int(user["tg_id"])
             name = user.get("name", "")
-            task = short_3_limit.delay(
-                symbol=symbol,
-                tg_id=tg_id,
-                name=name,
-                api_key=api_key,
-                api_secret=api_secret,
-                sum_for_trades=sum_for_trades,
+            countdown = index * TRADE_SUBMIT_STAGGER_SEC if TRADE_SUBMIT_STAGGER_SEC > 0 else 0
+            task = short_3_limit.apply_async(
+                kwargs={
+                    "symbol": symbol,
+                    "tg_id": tg_id,
+                    "name": name,
+                    "api_key": api_key,
+                    "api_secret": api_secret,
+                    "sum_for_trades": sum_for_trades,
+                },
+                countdown=countdown,
             )
             queued += 1
             task_ids.append(task.id)

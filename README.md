@@ -88,15 +88,16 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 
 1. **`AsyncTradeEngine`** — singleton в процессе Celery: daemon-thread + `asyncio` event loop.
 2. **`TradeSession`** — одна изолированная сделка (состояние в `TradeState`, без globals).
-3. **`MarketFeedHub`** — **один публичный WebSocket Bybit на символ**; цена рассылается в очереди всех сессий по этой монете.
+3. **`MarketFeedHub`** (`bybit_logic/feeds/hybrid_feed_hub.py`) — цена из **Redis Pub/Sub** (центральный feed); при `feed:down` — local WS на символ в процессе engine.
 4. **`BybitHttpAdapter`** — вызовы pybit через `asyncio.to_thread` (не блокируют loop).
 5. **`TradeStateStore` (Redis)** — idempotency `trade_cmd:{tg_id}:{symbol}`; snapshots состояния для recovery.
 
-**Цепочка при сигнале `/short_3_limit`:**
+**Цепочка при сигнале `/short_3_limit` (Phase 2):**
 
-1. FastAPI читает символ, для каждого подписчика ставит `short_3_limit.delay(...)`.
-2. Celery-задача вызывает `start_trading` и **сразу завершается** (`status: submitted`, `trade_id`).
-3. В фоне `TradeSession`: плечо → market short → 3 лимитки → SL → подписка на hub → цикл цены.
+1. FastAPI читает символ, для каждого подписчика ставит `short_3_limit` (с `stagger`).
+2. `short_3_limit` → `trade_orchestrator.assign_trade()` → `engine_execute_trade` на очередь `trade_engine_{id}`.
+3. Engine worker (`CELERY_ENGINE_ID`, `concurrency=1`, max 30 сессий) → `submit_trade` → `TradeSession`.
+4. Цена: Redis feed (primary/backup) или local WS fallback.
 4. При `%` БУ → trailing stop (`bybit_logic/bybit_func/trailing_stop.py`).
 5. При закрытии позиции → `history_trades`, Telegram, отписка от hub, снятие idempotency.
 
@@ -115,10 +116,26 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 
 Нагрузочные тесты: `tests/load/short_bu_ts_limit_async_benchmark.py`, `tests/load/short_bu_ts_limit_multiprocess_benchmark.py`.
 
+## Phase 2: Redis feed + engine sharding
+
+Подробно: **[docs/phase2_scaling.md](docs/phase2_scaling.md)**
+
+| Сервис | Команда |
+|--------|---------|
+| Price feed | `python -m services.market_price_feed` |
+| Engine worker i | `CELERY_ENGINE_ID=i celery … worker -Q trade_engine_i --concurrency=1` |
+| Router | `celery … worker -Q default,trade_user` |
+
+- `TRADE_ENGINE_COUNT` — число engine-очередей (в `.env`, для тестов 2, для прода ~34).
+- `MAX_SESSIONS_PER_ENGINE=30` — лимит сделок на процесс.
+- Бенчмарк шардирования: `python -m tests.load.phase2_sharding_benchmark --sessions 60 --mode orchestrator`
+
 ## Требования к инфраструктуре
 
-- **Redis** обязателен для async short (broker Celery + idempotency/snapshots).
-- Celery: очередь `trade_user`, желательно `--concurrency=1` для одного движка.
+- **Redis** — broker Celery, idempotency, snapshots, price Pub/Sub, orchestrator load.
+- **Feed process** — `python -m services.market_price_feed` (отдельно от Celery).
+- **Engine workers** — по одному на `trade_engine_{i}`, `--concurrency=1`.
+- **Router worker** — `default`, `trade_user` (hedge/custom).
 - `worker_prefetch_multiplier=1` в `celery_app/celery_config.py`.
 
 ## Остановка торговли
@@ -136,7 +153,10 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | Sync nomulti (бенчмарк) | `bybit_logic/api_algorithms/short_bu_ts_limit.py` |
 | Hedge sync | `bybit_logic/api_algorithms/hedge_long_short_bu_ts.py` |
 | Custom sync | `bybit_logic/api_algorithms/custom_algo_nomulti.py` |
-| Celery multiuser | `celery_app/tasks/short_3_limit.py` |
+| Celery multiuser router | `celery_app/tasks/short_3_limit.py` |
+| Celery engine execute | `celery_app/tasks/engine_execute_trade.py` |
+| Orchestrator | `celery_app/trade_orchestrator.py` |
+| Price feed service | `services/market_price_feed/` |
 | Celery nomulti short | `celery_app/tasks/short_3_limit_nomulti.py` |
 
 # Последние изменения (Apr 2026)

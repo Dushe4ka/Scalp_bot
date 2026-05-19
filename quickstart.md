@@ -30,10 +30,33 @@ python -m server_api.main
 
 Сервер поднимается на `127.0.0.1:8050`.
 
-### Celery worker
+### Phase 2 (рекомендуется для short multiuser/nomulti)
+
+1. Price feed (отдельный процесс):
 
 ```bash
-celery -A celery_app.celery_config worker --loglevel=info -Q default,trade_user
+python -m services.market_price_feed
+```
+
+2. Engine workers (`TRADE_ENGINE_COUNT` в `.env`, пример 2):
+
+```bash
+CELERY_ENGINE_ID=0 celery -A celery_app.celery_config worker -Q trade_engine_0 -n engine0@%h --concurrency=1 -l info
+CELERY_ENGINE_ID=1 celery -A celery_app.celery_config worker -Q trade_engine_1 -n engine1@%h --concurrency=1 -l info
+```
+
+3. Router + hedge/custom:
+
+```bash
+celery -A celery_app.celery_config worker -l info -Q default,trade_user --concurrency=4
+```
+
+Подробнее: [docs/phase2_scaling.md](docs/phase2_scaling.md)
+
+### Celery worker (legacy, без engine sharding)
+
+```bash
+celery -A celery_app.celery_config worker --loglevel=info -Q default,trade_user --concurrency=1
 ```
 
 ## 3) Мультиюзерная версия

@@ -43,6 +43,22 @@ def ensure_nomulti_short_bu_ts_env() -> None:
         raise ValueError("Сумма для торговли должна быть > 0")
 
 
+def _nomulti_credentials() -> tuple[int, str, str, str, float]:
+    from config import USE_DEMO
+    from bybit_logic.config import API_KEY, API_SECRET, DEMO_API_KEY, DEMO_API_SECRET
+
+    if USE_DEMO:
+        api_key = (DEMO_API_KEY or "").strip()
+        api_secret = (DEMO_API_SECRET or "").strip()
+    else:
+        api_key = (API_KEY or "").strip()
+        api_secret = (API_SECRET or "").strip()
+    tg_raw = os.getenv("NOMULTI_TG_ID") or os.getenv("ADMIN_CHAT_ID") or "0"
+    tg_id = int(tg_raw)
+    sum_raw = os.getenv("SHORT_BU_TS_LIMIT_USDT_AMOUNT") or os.getenv("USDT_AMOUNT")
+    return tg_id, api_key, api_secret, os.getenv("NOMULTI_USER_NAME", "nomulti"), float(sum_raw)
+
+
 @celery_app.task(
     name="nomulti_short_3_limit",
     bind=True,
@@ -51,7 +67,7 @@ def ensure_nomulti_short_bu_ts_env() -> None:
     default_retry_delay=5,
 )
 def nomulti_short_3_limit_task(self, symbol: str):
-    """short_bu_ts_limit по .env; символ из тела запроса; уведомления подписчикам из алгоритма."""
+    """Nomulti short через orchestrator + engine worker (Phase 2)."""
     setup_project_path()
 
     lock = None
@@ -68,19 +84,35 @@ def nomulti_short_3_limit_task(self, symbol: str):
         logger.warning("Redis-lock (%s) недоступен, продолжаем без lock: %s", lock_key, lock_err)
 
     ensure_nomulti_short_bu_ts_env()
-    sum_note = os.getenv("SHORT_BU_TS_LIMIT_USDT_AMOUNT") or os.getenv("USDT_AMOUNT")
-    logger.info(
-        "Запуск nomulti_short_3_limit: symbol=%s sum_env=%s (short_bu_ts_limit)",
-        symbol,
-        sum_note,
+    tg_id, api_key, api_secret, name, sum_for_trades = _nomulti_credentials()
+
+    from celery_app.trade_orchestrator import assign_trade
+    from celery_app.tasks.engine_execute_trade import engine_execute_trade
+
+    assignment = assign_trade(
+        symbol=symbol,
+        tg_id=tg_id,
+        name=name,
+        api_key=api_key,
+        api_secret=api_secret,
+        sum_for_trades=sum_for_trades,
     )
 
-    from bybit_logic.api_algorithms.short_bu_ts_limit_engine import start_trading_nomulti
-
-    trade_id = None
     try:
-        trade_id = start_trading_nomulti(symbol=symbol)
-        logger.info("nomulti_short_3_limit trade_id=%s symbol=%s", trade_id, symbol)
+        if assignment.get("status") == "assigned":
+            engine_execute_trade.apply_async(
+                kwargs={
+                    "trade_id": assignment["trade_id"],
+                    "symbol": symbol,
+                    "tg_id": tg_id,
+                    "name": name,
+                    "api_key": api_key,
+                    "api_secret": api_secret,
+                    "sum_for_trades": sum_for_trades,
+                    "engine_id": assignment["engine_id"],
+                },
+                queue=assignment["queue"],
+            )
     finally:
         if lock is not None:
             try:
@@ -88,5 +120,5 @@ def nomulti_short_3_limit_task(self, symbol: str):
             except Exception:
                 pass
 
-    logger.info("nomulti_short_3_limit завершён: symbol=%s trade_id=%s", symbol, trade_id)
-    return {"status": "submitted", "symbol": symbol, "trade_id": trade_id}
+    logger.info("nomulti_short_3_limit: %s", assignment)
+    return {"symbol": symbol, **assignment}

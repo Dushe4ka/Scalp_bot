@@ -19,39 +19,56 @@ def short_3_limit(
     api_key: str,
     api_secret: str,
     sum_for_trades: float,
+    trade_id: str | None = None,
 ):
     """
-    Запускает алгоритм short для символа
-    
-    Args:
-        self: Объект задачи (обязателен при bind=True)
-        symbol: Символ торговой пары (например, "BTCUSDT")
+    Маршрутизация short-сделки на engine-воркер (Phase 2 orchestrator).
     """
-    setup_project_path()  # Добавляем корневую директорию проекта в PYTHONPATH
+    setup_project_path()
 
-    logger.info("🔄 Выполняется задача short_3_limit: symbol=%s tg_id=%s", symbol, tg_id)
+    logger.info("🔄 short_3_limit route: symbol=%s tg_id=%s", symbol, tg_id)
 
-    from bybit_logic.api_algorithms.short_bu_ts_limit_multiuser import start_trading
+    from celery_app.trade_orchestrator import assign_trade
+    from celery_app.tasks.engine_execute_trade import engine_execute_trade
 
-    trade_id = start_trading(
+    assignment = assign_trade(
         symbol=symbol,
         tg_id=tg_id,
         name=name,
         api_key=api_key,
         api_secret=api_secret,
         sum_for_trades=float(sum_for_trades),
+        trade_id=trade_id,
+    )
+
+    status = assignment.get("status")
+    if status == "queued":
+        logger.warning("Trade queued (all engines full): %s", assignment.get("trade_id"))
+        return assignment
+
+    if status != "assigned":
+        return assignment
+
+    queue = assignment["queue"]
+    engine_execute_trade.apply_async(
+        kwargs={
+            "trade_id": assignment["trade_id"],
+            "symbol": symbol,
+            "tg_id": tg_id,
+            "name": name,
+            "api_key": api_key,
+            "api_secret": api_secret,
+            "sum_for_trades": float(sum_for_trades),
+            "engine_id": assignment["engine_id"],
+        },
+        queue=queue,
     )
 
     logger.info(
-        "✅ Задача short_3_limit поставлена в async-движок: symbol=%s tg_id=%s trade_id=%s",
+        "✅ short_3_limit routed: symbol=%s tg_id=%s engine=%s trade_id=%s",
         symbol,
         tg_id,
-        trade_id,
+        assignment.get("engine_id"),
+        assignment.get("trade_id"),
     )
-    return {
-        "status": "submitted",
-        "symbol": symbol,
-        "tg_id": tg_id,
-        "trade_id": trade_id,
-    }
-    
+    return assignment

@@ -3,7 +3,7 @@ Production async execution-engine для short BU TS limit (multiuser).
 
 Ключевые свойства:
 - без глобального mutable состояния;
-- MarketFeedHub: одна публичная WS-подписка на символ (fan-out по сессиям);
+- MarketFeedHub: Redis price feed + local WS fallback (Phase 2);
 - sync pybit HTTP через asyncio.to_thread;
 - idempotency + snapshots в Redis для recovery.
 """
@@ -22,8 +22,9 @@ from typing import Any
 import dotenv
 
 from bybit_logic.bybit_func import calculator, market, orders, position, session, stop_trade
-from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
+from bybit_logic.feeds.feed_config import MAX_SESSIONS_PER_ENGINE
+from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
 from celery_app.tasks.notifications import send_notification_task, send_notification_to_user_task
 from config import USE_DEMO as USE_DEMO_FROM_ENV
@@ -232,82 +233,6 @@ class BybitHttpAdapter:
 
     async def get_result_position_info(self, symbol: str, http_session):
         return await asyncio.to_thread(position.result_position_info_data, symbol, http_session)
-
-
-class MarketFeedHub:
-    def __init__(self) -> None:
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._feeds: dict[str, dict[str, Any]] = {}
-        self._lock = threading.Lock()
-
-    def attach_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        self._loop = loop
-
-    async def subscribe(self, symbol: str) -> asyncio.Queue[float]:
-        symbol = symbol.upper()
-        queue: asyncio.Queue[float] = asyncio.Queue(maxsize=500)
-        with self._lock:
-            if symbol not in self._feeds:
-                self._feeds[symbol] = {"stream": None, "queues": set(), "started": False}
-            entry = self._feeds[symbol]
-            entry["queues"].add(queue)
-            if not entry["started"]:
-                entry["stream"] = self._start_stream(symbol)
-                entry["started"] = True
-        return queue
-
-    async def unsubscribe(self, symbol: str, queue: asyncio.Queue[float]) -> None:
-        symbol = symbol.upper()
-        with self._lock:
-            entry = self._feeds.get(symbol)
-            if not entry:
-                return
-            entry["queues"].discard(queue)
-            if not entry["queues"]:
-                stream = entry.get("stream")
-                if stream is not None:
-                    try:
-                        stream.stop()
-                    except Exception:
-                        pass
-                self._feeds.pop(symbol, None)
-
-    def _start_stream(self, symbol: str) -> PriceStream:
-        def _dispatch(message: dict[str, Any]) -> None:
-            try:
-                data = message.get("data")
-                if isinstance(data, list):
-                    data = data[0] if data else None
-                if not data:
-                    return
-                price = float(data.get("lastPrice", 0))
-                if price <= 0:
-                    return
-            except Exception:
-                return
-            if self._loop is None:
-                return
-            self._loop.call_soon_threadsafe(self._publish_price, symbol, price)
-
-        stream = PriceStream(symbol=symbol, price_handler=_dispatch, testnet=False)
-        stream.start()
-        return stream
-
-    def _publish_price(self, symbol: str, price: float) -> None:
-        entry = self._feeds.get(symbol)
-        if not entry:
-            return
-        queues = list(entry["queues"])
-        for q in queues:
-            if q.full():
-                try:
-                    q.get_nowait()
-                except Exception:
-                    pass
-            try:
-                q.put_nowait(price)
-            except Exception:
-                pass
 
 
 class TradeSession:
@@ -597,6 +522,12 @@ class TradeSession:
             await self.feed_hub.unsubscribe(s.symbol, self._queue)
         await self.store.clear_snapshot(s.trade_id)
         await self.store.release_idempotency(s.symbol, s.tg_id)
+        try:
+            from celery_app.trade_orchestrator import release_engine_slot
+
+            release_engine_slot()
+        except Exception:
+            pass
 
 
 class AsyncTradeEngine:
@@ -626,6 +557,7 @@ class AsyncTradeEngine:
         asyncio.set_event_loop(loop)
         self._loop = loop
         self.feed_hub.attach_loop(loop)
+        loop.create_task(self.feed_hub.start_watch())
         loop.run_forever()
 
     def submit_trade(
@@ -636,12 +568,13 @@ class AsyncTradeEngine:
         api_key: str,
         api_secret: str,
         sum_for_trades: float,
+        trade_id: str | None = None,
     ) -> str:
         self.ensure_started()
-        trade_id = f"{tg_id}:{symbol.upper()}:{uuid.uuid4().hex[:10]}"
+        tid = trade_id or f"{tg_id}:{symbol.upper()}:{uuid.uuid4().hex[:10]}"
         fut = asyncio.run_coroutine_threadsafe(
             self._submit_trade_async(
-                trade_id=trade_id,
+                trade_id=tid,
                 symbol=symbol,
                 tg_id=tg_id,
                 name=name,
@@ -652,13 +585,24 @@ class AsyncTradeEngine:
             self._loop,
         )
         fut.result(timeout=10)
-        return trade_id
+        return tid
 
     async def _submit_trade_async(self, trade_id: str, symbol: str, tg_id: int, name: str, api_key: str, api_secret: str, sum_for_trades: float) -> None:
         symbol = symbol.upper()
+        if len(self._tasks) >= MAX_SESSIONS_PER_ENGINE:
+            raise RuntimeError(
+                f"Engine at capacity ({MAX_SESSIONS_PER_ENGINE} sessions). "
+                "Use trade orchestrator to route to another engine."
+            )
         ok = await self.store.acquire_idempotency(symbol=symbol, tg_id=tg_id)
         if not ok:
             logger.warning("⏭️ Дубликат команды отфильтрован: tg_id=%s symbol=%s", tg_id, symbol)
+            try:
+                from celery_app.trade_orchestrator import release_engine_slot
+
+                release_engine_slot()
+            except Exception:
+                pass
             return
 
         state = TradeState(
@@ -678,6 +622,9 @@ class AsyncTradeEngine:
 
     def running_count(self) -> int:
         return len(self._tasks)
+
+    def local_ws_count(self) -> int:
+        return self.feed_hub.local_stream_count()
 
 
 _engine_singleton: AsyncTradeEngine | None = None
