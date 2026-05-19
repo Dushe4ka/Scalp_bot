@@ -60,9 +60,9 @@ python -m bot_nomultiuser.main
 
 ### Доступные алгоритмы из меню бота
 
-- `Short BU TS limit (nomulti)`:
-  - `POST /nomulti_short_bu_ts_limit`
-  - Celery task: `celery_app/tasks/short_bu_ts_limit_nomulti.py`
+- `Short 3 limit (nomulti)`:
+  - `POST /nomulti_short_3_limit`
+  - Celery task: `celery_app/tasks/short_3_limit_nomulti.py`
 - `Hedge long + short`:
   - `POST /hedge_long_short_bu_ts`
   - Celery task: `celery_app/tasks/hedge_long_short_bu_ts.py`

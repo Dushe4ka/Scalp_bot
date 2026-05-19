@@ -35,7 +35,6 @@ if __name__ == "__main__":
             f"🔻{base_url}/hedge_long_short_bu_ts\n\n"
             f"— Nomulti (один аккаунт, сигнал POST телом = символ, кроме custom):\n"
             f"🔻{base_url}/nomulti_short_3_limit\n\n"
-            f"🔻{base_url}/nomulti_short_bu_ts_limit\n\n"
             f"🔻{base_url}/nomulti_custom_algo"
         )
         send_notification_task.delay(notification_text)

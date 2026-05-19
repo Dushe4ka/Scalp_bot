@@ -347,16 +347,16 @@ async def custom_launch_back_to_symbol(callback: CallbackQuery, state: FSMContex
     await callback.answer()
 
 
-@router.callback_query(F.data == "nomulti_short_bu_ts_limit")
-async def nomulti_short_bu_ts_limit_start(callback: CallbackQuery, state: FSMContext):
-    """Запрос символа для Short BU TS limit (nemulti)."""
-    text = "Введите символ (например BTCUSDT) для Short BU TS limit (nomulti):"
+@router.callback_query(F.data == "nomulti_short_3_limit")
+async def nomulti_short_3_limit_start(callback: CallbackQuery, state: FSMContext):
+    """Запрос символа для Short 3 limit (nomulti)."""
+    text = "Введите символ (например BTCUSDT) для Short 3 limit (nomulti):"
     await safe_edit_message(
         callback,
         text,
         reply_markup=back_to_main_kb().as_markup(),
     )
-    await state.update_data(algorithm="nomulti_short")
+    await state.update_data(algorithm="nomulti_short_3")
     await state.set_state(TradingStates.waiting_for_symbol)
     await callback.answer()
 
@@ -381,14 +381,14 @@ async def process_algorithm_symbol(message: Message, state: FSMContext):
     symbol = message.text.strip().upper()
     user_id = message.from_user.id
     data = await state.get_data()
-    algorithm = data.get("algorithm") or "nomulti_short"
+    algorithm = data.get("algorithm") or "nomulti_short_3"
 
     if algorithm == "hedge":
         url = f"{SERVER_URL}/hedge_long_short_bu_ts"
         algo_label = "Hedge long + short"
     else:
-        url = f"{SERVER_URL}/nomulti_short_bu_ts_limit"
-        algo_label = "Short BU TS limit (nomulti)"
+        url = f"{SERVER_URL}/nomulti_short_3_limit"
+        algo_label = "Short 3 limit (nomulti)"
 
     try:
         async with aiohttp.ClientSession() as http:

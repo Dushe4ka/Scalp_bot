@@ -75,10 +75,12 @@ def nomulti_short_3_limit_task(self, symbol: str):
         sum_note,
     )
 
-    from bybit_logic.api_algorithms.short_bu_ts_limit import start_trading
+    from bybit_logic.api_algorithms.short_bu_ts_limit_engine import start_trading_nomulti
 
+    trade_id = None
     try:
-        start_trading(symbol=symbol)
+        trade_id = start_trading_nomulti(symbol=symbol)
+        logger.info("nomulti_short_3_limit trade_id=%s symbol=%s", trade_id, symbol)
     finally:
         if lock is not None:
             try:
@@ -86,5 +88,5 @@ def nomulti_short_3_limit_task(self, symbol: str):
             except Exception:
                 pass
 
-    logger.info("nomulti_short_3_limit завершён: symbol=%s", symbol)
-    return {"status": "completed", "symbol": symbol}
+    logger.info("nomulti_short_3_limit завершён: symbol=%s trade_id=%s", symbol, trade_id)
+    return {"status": "submitted", "symbol": symbol, "trade_id": trade_id}

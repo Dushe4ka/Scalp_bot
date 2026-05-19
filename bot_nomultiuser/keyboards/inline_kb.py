@@ -54,7 +54,7 @@ def algorithms_kb() -> InlineKeyboardBuilder:
     Меню алгоритмов
     """
     kb = InlineKeyboardBuilder()
-    kb.button(text="Short BU TS limit (nomulti)", callback_data="nomulti_short_bu_ts_limit")
+    kb.button(text="Short 3 limit (nomulti)", callback_data="nomulti_short_3_limit")
     kb.button(text="Hedge long + short", callback_data="hedge_long_short_bu_ts")
     kb.button(text="Custom ⚙️", callback_data="custom_algo")
     kb.button(text="⬅️ Назад", callback_data="trading")

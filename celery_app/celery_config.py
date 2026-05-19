@@ -15,7 +15,6 @@ celery_app.conf.update(
     imports=[
         'celery_app.tasks.short_3_limit',
         'celery_app.tasks.short_3_limit_nomulti',
-        'celery_app.tasks.short_bu_ts_limit_nomulti',
         'celery_app.tasks.hedge_long_short_bu_ts',
         'celery_app.tasks.custom_algo_nomulti',
         'celery_app.tasks.notifications',
@@ -28,8 +27,9 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    # worker_prefetch_multiplier=1,  # Для Async подхода
-    # task_track_started=True,  # Для Async подхода
+  # Для trade_user + async-движок: 1 воркер на очередь или prefetch=1,
+  # иначе в каждом prefork-процессе свой AsyncTradeEngine (дубли WS).
+    worker_prefetch_multiplier=1,
     task_default_queue="default",
     task_queues=(
         Queue("default"),

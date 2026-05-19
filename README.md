@@ -9,7 +9,13 @@
 
 # Запуск Celery Worker
 
-* celery -A celery_app.celery_config worker --loglevel=info
+Рекомендуется для async short-алгоритмов (один `AsyncTradeEngine` на процесс):
+
+```bash
+celery -A celery_app.celery_config worker --loglevel=info -Q default,trade_user --concurrency=1
+```
+
+При `--concurrency>1` каждый prefork-процесс поднимает свой движок и свой набор WebSocket — растёт RAM.
 
 # Запуск Telegram бота (мультиюзер)
 
@@ -33,12 +39,105 @@
 
 ## Запуск через API + Celery
 
-- `POST /hedge_long_short_bu_ts` — hedge long+short; тело: сырой текст символа (`BTCUSDT`); задача: `celery_app/tasks/hedge_long_short_bu_ts.py`
-- `POST /nomulti_short_bu_ts_limit` — немультюзерный `short_bu_ts_limit`; тело: сырой текст символа; задача: `celery_app/tasks/short_bu_ts_limit_nomulti.py`
+| Эндпоинт | Кто торгует | Движок | Celery-задача |
+|----------|-------------|--------|----------------|
+| `POST /short_3_limit` | все подписчики с ключами (multiuser) | **Async** | `short_3_limit` |
+| `POST /nomulti_short_3_limit` | один аккаунт из `.env` | **Async** | `nomulti_short_3_limit` |
+| `POST /hedge_long_short_bu_ts` | один аккаунт из `.env` | Sync | `hedge_long_short_bu_ts` |
+| `POST /nomulti_custom_algo` | один аккаунт + JSON-конфиг | Sync | `nomulti_custom_algo` |
 
-Немультюзерный Telegram-бот (`bot_nomultiuser`) вызывает эти эндпоинты из меню «Алгоритмы».
+Тело для short/hedge: **сырой текст** символа, например `BTCUSDT`.  
+Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`).
 
-Примечание: для работы алгоритмов должны быть запущены API, Celery worker и общая MongoDB для подписчиков (уведомления идут через `send_notification_task`).
+Немультюзерный бот (`bot_nomultiuser`) → `/nomulti_short_3_limit`, `/hedge_long_short_bu_ts`, `/nomulti_custom_algo`.
+
+Для работы нужны: API, Celery worker, **Redis** (broker + idempotency/snapshots async-движка), MongoDB (подписчики, custom-конфиг).
+
+---
+
+# Архитектура торговых движков (May 2026)
+
+## Что обновлено на async
+
+Перенесены на **единый async-движок** (`short_bu_ts_limit_engine.py`):
+
+| Сценарий | Было | Стало |
+|----------|------|--------|
+| Multiuser short (`/short_3_limit`) | sync, глобальные переменные, **свой WebSocket на каждую Celery-задачу/процесс** | `AsyncTradeEngine` + `MarketFeedHub` |
+| Nomulti short (`/nomulti_short_3_limit`) | sync `short_bu_ts_limit.py`, блокировка воркера на всю сделку | `start_trading_nomulti()` → тот же async-движок |
+
+**Не переведены на async** (пока sync, воркер занят до конца сделки):
+
+- `hedge_long_short_bu_ts.py` — две ноги long/short в hedge;
+- `custom_algo_nomulti.py` — настраиваемый алгоритм из Mongo.
+
+Старая sync multiuser-реализация сохранена для отката/сравнения:  
+`bybit_logic/api_algorithms/_legacy/short_bu_ts_limit_multiuser_sync.py`.
+
+Удалён дублирующий эндпоинт `POST /nomulti_short_bu_ts_limit` (логика совпадала с `nomulti_short_3_limit`).
+
+## Как работает async-движок
+
+**Модуль:** `bybit_logic/api_algorithms/short_bu_ts_limit_engine.py`  
+**Точки входа:**
+
+- multiuser: `short_bu_ts_limit_multiuser.start_trading(...)` → `submit_trade(...)` → сразу `trade_id`;
+- nomulti: `start_trading_nomulti(symbol)` — ключи и сумма из `.env`, `tg_id` из `NOMULTI_TG_ID` / `ADMIN_CHAT_ID`.
+
+**Компоненты:**
+
+1. **`AsyncTradeEngine`** — singleton в процессе Celery: daemon-thread + `asyncio` event loop.
+2. **`TradeSession`** — одна изолированная сделка (состояние в `TradeState`, без globals).
+3. **`MarketFeedHub`** — **один публичный WebSocket Bybit на символ**; цена рассылается в очереди всех сессий по этой монете.
+4. **`BybitHttpAdapter`** — вызовы pybit через `asyncio.to_thread` (не блокируют loop).
+5. **`TradeStateStore` (Redis)** — idempotency `trade_cmd:{tg_id}:{symbol}`; snapshots состояния для recovery.
+
+**Цепочка при сигнале `/short_3_limit`:**
+
+1. FastAPI читает символ, для каждого подписчика ставит `short_3_limit.delay(...)`.
+2. Celery-задача вызывает `start_trading` и **сразу завершается** (`status: submitted`, `trade_id`).
+3. В фоне `TradeSession`: плечо → market short → 3 лимитки → SL → подписка на hub → цикл цены.
+4. При `%` БУ → trailing stop (`bybit_logic/bybit_func/trailing_stop.py`).
+5. При закрытии позиции → `history_trades`, Telegram, отписка от hub, снятие idempotency.
+
+**Nomulti** — та же логика, один `tg_id` и ключи из `.env`.
+
+## Зачем async (результаты бенчмарка)
+
+На VPS 2 CPU / ~4 GB RAM, 10 параллельных demo-сделок:
+
+| Режим | RAM бота | CPU пик (система) |
+|-------|----------|-------------------|
+| 10 sync-процессов | ~1280 MB | ~100% |
+| 10 async-сессий (1 процесс) | ~143 MB | ~50% |
+
+При **100 подписчиках на один символ**: один WS на монету в hub (при `--concurrency=1` на `trade_user`).
+
+Нагрузочные тесты: `tests/load/short_bu_ts_limit_async_benchmark.py`, `tests/load/short_bu_ts_limit_multiprocess_benchmark.py`.
+
+## Требования к инфраструктуре
+
+- **Redis** обязателен для async short (broker Celery + idempotency/snapshots).
+- Celery: очередь `trade_user`, желательно `--concurrency=1` для одного движка.
+- `worker_prefetch_multiplier=1` в `celery_app/celery_config.py`.
+
+## Остановка торговли
+
+- `POST /stop_trading_by_symbol`, `POST /stop_trading_all` — закрытие через **ключи из `.env`** (`USE_DEMO`).
+- Для multiuser это не останавливает сессии на ключах пользователей автоматически; сессии сами вызывают `stop_trading_by_symbol` при `size=0` или при ручном закрытии на бирже.
+
+## Файлы (шпаргалка)
+
+| Назначение | Путь |
+|------------|------|
+| Async-движок (prod) | `bybit_logic/api_algorithms/short_bu_ts_limit_engine.py` |
+| Multiuser API-обёртка | `bybit_logic/api_algorithms/short_bu_ts_limit_multiuser.py` |
+| Sync multiuser (legacy) | `bybit_logic/api_algorithms/_legacy/short_bu_ts_limit_multiuser_sync.py` |
+| Sync nomulti (бенчмарк) | `bybit_logic/api_algorithms/short_bu_ts_limit.py` |
+| Hedge sync | `bybit_logic/api_algorithms/hedge_long_short_bu_ts.py` |
+| Custom sync | `bybit_logic/api_algorithms/custom_algo_nomulti.py` |
+| Celery multiuser | `celery_app/tasks/short_3_limit.py` |
+| Celery nomulti short | `celery_app/tasks/short_3_limit_nomulti.py` |
 
 # Последние изменения (Apr 2026)
 
@@ -75,6 +174,13 @@
 - Это уменьшает долю сбоев вида `Timeout` при отправке сообщений в Telegram.
 
 # Последние изменения (May 2026)
+
+## Миграция short-алгоритмов на AsyncTradeEngine
+
+- Prod multiuser и nomulti short используют `short_bu_ts_limit_engine.py` (см. раздел «Архитектура торговых движков»).
+- Celery-задачи short больше не блокируют воркер на всю сделку — только постановка в движок.
+- Исправлена сериализация `datetime` в Redis-snapshots (`closed_position_info`).
+- Единый nomulti-эндпоинт для бота и сигналов: `/nomulti_short_3_limit`.
 
 ## Custom Algo для `bot_nomultiuser`
 

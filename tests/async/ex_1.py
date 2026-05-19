@@ -22,8 +22,8 @@ import time
 
 import dotenv
 
-from bybit_logic._update.async_src import short_bu_ts_limit_multiuser as engine_module
-from bybit_logic._update.async_src.short_bu_ts_limit_multiuser import get_async_trade_engine
+from bybit_logic.api_algorithms import short_bu_ts_limit_engine as engine_module
+from bybit_logic.api_algorithms.short_bu_ts_limit_engine import get_async_trade_engine
 
 dotenv.load_dotenv()
 
