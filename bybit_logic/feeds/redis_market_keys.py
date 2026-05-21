@@ -50,6 +50,15 @@ def encode_release_message(symbol: str) -> str:
 
 
 def parse_ensure_message(raw: str | bytes) -> str | None:
+    return _parse_symbol_control_message(raw)
+
+
+def parse_release_message(raw: str | bytes) -> str | None:
+    """Same JSON shape as ensure: {"symbol": "BTCUSDT"}."""
+    return _parse_symbol_control_message(raw)
+
+
+def _parse_symbol_control_message(raw: str | bytes) -> str | None:
     try:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")

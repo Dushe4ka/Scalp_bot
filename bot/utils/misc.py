@@ -12,6 +12,6 @@ def _format_dt(dt: Any) -> str:
         return dt.strftime("%Y-%m-%d %H:%M")
     return str(dt)
 
-bot = Bot(token=TEST_TELEGRAM_BOT_TOKEN)
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)

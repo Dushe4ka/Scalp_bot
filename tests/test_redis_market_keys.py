@@ -6,8 +6,10 @@ import unittest
 from bybit_logic.feeds.redis_market_keys import (
     FeedSource,
     encode_ensure_message,
+    encode_release_message,
     encode_ticker_message,
     parse_ensure_message,
+    parse_release_message,
     parse_ticker_message,
     ticker_channel,
 )
@@ -29,6 +31,10 @@ class RedisMarketKeysTests(unittest.TestCase):
     def test_ensure_message_roundtrip(self):
         raw = encode_ensure_message("xnyusdt")
         self.assertEqual(parse_ensure_message(raw), "XNYUSDT")
+
+    def test_release_message_roundtrip(self):
+        raw = encode_release_message("btcusdt")
+        self.assertEqual(parse_release_message(raw), "BTCUSDT")
 
 
 if __name__ == "__main__":

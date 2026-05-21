@@ -10,6 +10,23 @@ from logger_config import setup_logger
 logger = setup_logger(__name__)
 
 
+def _user_notification_bot_token() -> str | None:
+    """
+    Токен бота для личных уведомлений multiuser (send_notification_to_user).
+    Приоритет: CELERY_TRADING_BOT_TOKEN → TEST_TELEGRAM_BOT_TOKEN → TELEGRAM_BOT_TOKEN.
+    """
+    from bot.config import TEST_TELEGRAM_BOT_TOKEN
+
+    raw = (
+        os.getenv("CELERY_TRADING_BOT_TOKEN")
+        or os.getenv("CELERY_SUBSCRIBERS_BOT_TOKEN")
+        or TEST_TELEGRAM_BOT_TOKEN
+        or TELEGRAM_BOT_TOKEN
+        or ""
+    )
+    return str(raw).strip() or None
+
+
 def _subscriber_broadcast_bot_token() -> str | None:
     """
     Токен бота для рассылки по коллекции subscribers (Mongo).
@@ -120,7 +137,11 @@ def send_notification_to_user_task(self, tg_id: int, text: str):
     """
     Отправка уведомления конкретному пользователю в Telegram.
     """
-    api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    token = _user_notification_bot_token()
+    if not token:
+        logger.error("send_notification_to_user_task: не задан токен бота")
+        return {"ok": False, "error": "missing_bot_token", "tg_id": tg_id}
+    api_url = f"https://api.telegram.org/bot{token}/sendMessage"
     max_attempts = 3
     last_error = None
     for attempt in range(1, max_attempts + 1):

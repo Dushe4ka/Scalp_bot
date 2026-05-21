@@ -26,7 +26,7 @@ from bybit_logic.bybit_func.trailing_stop import TrailingStop
 from bybit_logic.feeds.feed_config import MAX_SESSIONS_PER_ENGINE
 from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
-from celery_app.tasks.notifications import send_notification_task, send_notification_to_user_task
+from celery_app.tasks.notifications import send_notification_to_user_task
 from config import USE_DEMO as USE_DEMO_FROM_ENV
 from history_trades_repository import build_trade_doc, history_trades_db
 from logger_config import setup_logger
@@ -252,6 +252,10 @@ class TradeSession:
         self._queue: asyncio.Queue[float] | None = None
         self._lock = asyncio.Lock()
 
+    def _notify_user(self, text: str) -> None:
+        """Multiuser: уведомление только владельцу сделки (tg_id), без рассылки subscribers."""
+        send_notification_to_user_task.delay(int(self.state.tg_id), text)
+
     async def run(self) -> None:
         try:
             await self._bootstrap()
@@ -271,10 +275,8 @@ class TradeSession:
         if not leverage_result.get("ok"):
             if leverage_result.get("error_type") == "leverage_too_high":
                 max_lev = leverage_result.get("max_leverage")
-                send_notification_to_user_task.delay(
-                    s.tg_id,
+                self._notify_user(
                     "❌ Позиция не открыта: ограничение плеча\n\n"
-                    f"👤 Пользователь: {s.name} ({s.tg_id})\n"
                     f"📊 Символ: {s.symbol}\n"
                     f"🎯 Запрошено: {LEVERAGE}x\n"
                     f"📉 Максимум по инструменту: {max_lev}x\n"
@@ -291,8 +293,9 @@ class TradeSession:
             await asyncio.to_thread(position.try_switch_linear_one_way, self.http_session, s.symbol)
 
         if await self.adapter.if_position_open(self.http_session, s.symbol):
-            send_notification_task.delay(
-                f"⚠️ Дубликат отфильтрован\n\n👤 Пользователь: {s.name} ({s.tg_id})\n📊 Символ: {s.symbol}\nℹ️ По этой монете уже ведется торговля"
+            self._notify_user(
+                f"⚠️ Дубликат отфильтрован\n\n📊 Символ: {s.symbol}\n"
+                "ℹ️ По этой монете у вас уже открыта позиция — новый вход пропущен"
             )
             s.should_stop = True
             return
@@ -319,11 +322,20 @@ class TradeSession:
 
         if not order_result or order_result.get("retCode") != 0:
             logger.error("❌ Ошибка открытия позиции trade_id=%s: %s", s.trade_id, order_result)
+            err = order_result or {}
+            err_text = err.get("retMsg") or str(err)[:300]
+            self._notify_user(
+                f"❌ Позиция не открыта\n\n📊 Символ: {s.symbol}\n"
+                f"💰 Сумма: {s.sum_for_trades} USDT\n"
+                f"📈 Сторона: {POSITION_SIDE}\n"
+                f"ℹ️ Bybit: {err_text}"
+            )
             s.should_stop = True
             return
 
-        send_notification_task.delay(
-            f"🚀 Алгоритм запущен!\n\n👤 Пользователь: {s.name} ({s.tg_id})\n📊 Символ: {s.symbol}\n💰 Сумма: {s.sum_for_trades} USDT\n📈 Сторона: {POSITION_SIDE}\n"
+        self._notify_user(
+            f"🚀 Алгоритм запущен!\n\n📊 Символ: {s.symbol}\n"
+            f"💰 Сумма: {s.sum_for_trades} USDT\n📈 Сторона: {POSITION_SIDE}\n"
         )
 
         self.trailing_stop = TrailingStop(
@@ -455,10 +467,8 @@ class TradeSession:
             closed_info = closed or {}
             pnl = float(closed_info.get("pnl_usdt") or 0.0)
             pnl_sign = "+" if pnl >= 0 else ""
-            send_notification_to_user_task.delay(
-                s.tg_id,
+            self._notify_user(
                 "🔄 Позиция закрыта\n\n"
-                f"👤 Пользователь: {s.name} ({s.tg_id})\n"
                 f"📊 Символ: {closed_info.get('symbol') or s.symbol}\n"
                 f"📈 Сторона: {'Лонг' if closed_info.get('side') == 'Buy' else 'Шорт'}\n"
                 f"💰 Цена входа: {float(closed_info.get('entry_price') or 0.0):.8g}\n"
