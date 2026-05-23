@@ -1,4 +1,4 @@
-from users_repository import UsersRepository
+from database.users_repository import UsersRepository
 import asyncio
 
 async def main():

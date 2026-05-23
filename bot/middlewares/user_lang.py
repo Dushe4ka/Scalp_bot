@@ -3,7 +3,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from typing import Callable, Dict, Any, Awaitable
 
-from users_repository import UsersRepository
+from database.users_repository import UsersRepository
 
 # Один экземпляр на всё приложение
 repo = UsersRepository()

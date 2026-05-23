@@ -17,7 +17,7 @@ from bot.keyboards.inline_kb import (
 )
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message
-from users_repository import db
+from database.users_repository import db
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
 from aiogram.fsm.context import FSMContext

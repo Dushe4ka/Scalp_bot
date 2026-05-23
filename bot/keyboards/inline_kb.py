@@ -7,7 +7,7 @@ from bot.callback_data.admin_lists import (
     WaitConfirmListPageCb,
     WaitConfirmUserCb,
 )
-from users_repository import db
+from database.users_repository import db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
 
 

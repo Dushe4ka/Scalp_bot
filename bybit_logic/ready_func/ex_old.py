@@ -6,7 +6,9 @@ from pybit.unified_trading import WebSocket, HTTP
 import asyncio
 from typing import Optional
 from config import API_KEY, API_SECRET, DEMO_API_KEY, DEMO_API_SECRET, TELEGRAM_BOT_TOKEN
-from database import get_all_subscribed_users, get_cached_subscribers
+from database.subscribers import get_subscribers as get_cached_subscribers
+
+get_all_subscribed_users = get_cached_subscribers
 from utils.send_tg_message import (
     notify_position_opened,
     notify_averaging_order_placed,

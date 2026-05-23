@@ -224,7 +224,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 ### Новые backend-компоненты
 
 - Репозиторий конфигурации:
-  - `custom_algo_repository.py`
+  - `database/custom_algo_repository.py`
   - Коллекция Mongo: `custom_algo_configs`
   - Поля: `direction`, `use_trailing_stop`, `trailing_activate_pct`, `trailing_step_pct`, `use_stop_loss`, `stop_loss_pct`, `use_breakeven`, `breakeven_pct`, `order_amount_usdt`, `updated_at`.
 - API schema:

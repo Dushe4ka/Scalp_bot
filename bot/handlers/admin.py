@@ -39,7 +39,7 @@ from bot.callback_data.admin_lists import (
 from bot.utils.helpers import safe_edit_message
 from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
-from users_repository import db, UsersRepositoryError, ValidationError
+from database.users_repository import db, UsersRepositoryError, ValidationError
 from config import LOCAL_SERVER_URL
 
 

@@ -2,7 +2,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from bot.keyboards.inline_kb import subscription_kb, main_menu_kb
 from bot.utils.helpers import safe_edit_message
-from database import add_subscriber, remove_subscriber, is_subscriber
+from database.subscribers import add_subscriber, remove_subscriber, is_subscriber
 from logger_config import setup_logger
 
 router = Router()

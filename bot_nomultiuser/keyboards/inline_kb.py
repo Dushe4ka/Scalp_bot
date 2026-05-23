@@ -1,5 +1,5 @@
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database import is_subscriber
+from database.subscribers import is_subscriber
 
 def main_menu_kb(user_id: int) -> InlineKeyboardBuilder:
     """

@@ -11,8 +11,8 @@ from celery_app.tasks.custom_algo_nomulti import nomulti_custom_algo_task
 from bybit_logic.bybit_func import session, stop_trade, position
 from server_api.utils import validate_and_clean_symbol
 from config import USE_DEMO
-from users_repository import db
-from custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
+from database.users_repository import db
+from database.custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
 from bybit_logic.feeds.feed_config import TRADE_SUBMIT_STAGGER_SEC
 
 router = APIRouter()

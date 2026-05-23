@@ -749,15 +749,19 @@ class UsersRepository:
             logger.error("Ошибка при обновлении positive_trades tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении positive_trades: {e}") from e
 
-    async def update_sum_positive_trades(self, tg_id: int, sum_positive_trades: str) -> None:
-        if not isinstance(sum_positive_trades, str):
+    async def update_sum_positive_trades(self, tg_id: int, sum_positive_trades: float | str | int) -> None:
+        try:
+            value = float(sum_positive_trades)
+        except (TypeError, ValueError):
             logger.warning("update_sum_positive_trades: невалидное значение для tg_id=%s", tg_id)
-            raise ValidationError("sum_positive_trades должен быть str")
+            raise ValidationError("sum_positive_trades должен быть числом")
+        if value < 0:
+            raise ValidationError("sum_positive_trades не может быть отрицательным")
         logger.info("Обновление sum_positive_trades для tg_id=%s", tg_id)
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"statistics.sum_positive_trades": sum_positive_trades}},
+                {"$set": {"statistics.sum_positive_trades": value}},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
@@ -779,15 +783,19 @@ class UsersRepository:
             logger.error("Ошибка при обновлении negative_trades tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении negative_trades: {e}") from e
 
-    async def update_sum_negative_trades(self, tg_id: int, sum_negative_trades: str) -> None:
-        if not isinstance(sum_negative_trades, str):
+    async def update_sum_negative_trades(self, tg_id: int, sum_negative_trades: float | str | int) -> None:
+        try:
+            value = float(sum_negative_trades)
+        except (TypeError, ValueError):
             logger.warning("update_sum_negative_trades: невалидное значение для tg_id=%s", tg_id)
-            raise ValidationError("sum_negative_trades должен быть str")
+            raise ValidationError("sum_negative_trades должен быть числом")
+        if value < 0:
+            raise ValidationError("sum_negative_trades не может быть отрицательным")
         logger.info("Обновление sum_negative_trades для tg_id=%s", tg_id)
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"statistics.sum_negative_trades": sum_negative_trades}},
+                {"$set": {"statistics.sum_negative_trades": value}},
             )
             self._ensure_user_exists(r, tg_id)
         except pymongo_errors.PyMongoError as e:
@@ -839,6 +847,13 @@ class UsersRepository:
 
         logger.info("Применение дельты статистики для tg_id=%s, pnl_usdt=%s", tg_id, pnl_usdt)
         try:
+            user = await self._collection.find_one({"tg_id": tg_id}, {"statistics": 1})
+            if user:
+                from database.user_statistics_coercion import statistics_coerce_update
+
+                sets = statistics_coerce_update(user.get("statistics"))
+                if sets:
+                    await self._collection.update_one({"tg_id": tg_id}, {"$set": sets})
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
                 {"$inc": inc_fields},

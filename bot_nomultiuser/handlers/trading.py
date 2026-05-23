@@ -17,7 +17,7 @@ from bot_nomultiuser.utils.helpers import safe_edit_message
 from bot_nomultiuser.states.trading_states import TradingStates
 from bot_nomultiuser.config import SERVER_URL
 from logger_config import setup_logger
-from custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
+from database.custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
 import aiohttp
 
 router = Router()

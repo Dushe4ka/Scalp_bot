@@ -4,7 +4,7 @@ import time
 from bybit_logic.bybit_func import calculator, orders, position, session, stop_trade
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
-from custom_algo_repository import normalize_custom_config
+from database.custom_algo_repository import normalize_custom_config
 from logger_config import setup_logger
 from config import USE_DEMO, TRADING_MARGIN_MODE
 

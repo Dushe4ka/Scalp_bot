@@ -1,6 +1,6 @@
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
-from database import get_subscribers
+from database.subscribers import get_subscribers
 from bot.utils.misc import bot
 from config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID
 from logger_config import setup_logger

@@ -6,6 +6,7 @@ from pymongo import errors as pymongo_errors
 
 from config import MONGO_URI, MONGO_DB
 from logger_config import setup_logger
+from database.user_statistics_coercion import coerce_user_statistics_sync
 
 logger = setup_logger(__name__)
 
@@ -37,6 +38,7 @@ class HistoryTradesRepository:
             inc_fields["statistics.sum_negative_trades"] = abs(float(pnl_usdt))
 
         try:
+            coerce_user_statistics_sync(self._users, int(tg_id))
             self._users.update_one({"tg_id": int(tg_id)}, {"$inc": inc_fields})
         except pymongo_errors.PyMongoError as e:
             logger.error("Ошибка apply_user_statistics_delta: %s", e, exc_info=True)

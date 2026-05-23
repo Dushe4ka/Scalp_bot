@@ -28,7 +28,7 @@ from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
 from celery_app.tasks.notifications import send_notification_to_user_task
 from config import USE_DEMO as USE_DEMO_FROM_ENV
-from history_trades_repository import build_trade_doc, history_trades_db
+from database.history_trades_repository import build_trade_doc, history_trades_db
 from logger_config import setup_logger
 
 dotenv.load_dotenv()
@@ -256,6 +256,79 @@ class TradeSession:
         """Multiuser: уведомление только владельцу сделки (tg_id), без рассылки subscribers."""
         send_notification_to_user_task.delay(int(self.state.tg_id), text)
 
+    def _close_info_from_state(self) -> dict[str, Any]:
+        s = self.state
+        return {
+            "symbol": s.symbol,
+            "side": POSITION_SIDE or "Sell",
+            "entry_price": float(s.entry_price or 0),
+            "exit_price": float(s.current_price or 0),
+            "pnl_usdt": float(s.pnl_usdt or 0),
+            "is_open": False,
+            "source": "trade_state",
+        }
+
+    def _merge_close_info(self, exchange_info: dict[str, Any] | None) -> dict[str, Any]:
+        """Bybit closed PnL + fallback на последние значения из TradeState."""
+        state_info = self._close_info_from_state()
+        if not exchange_info:
+            return state_info
+        merged = dict(exchange_info)
+        merged.setdefault("symbol", state_info["symbol"])
+        if not merged.get("side"):
+            merged["side"] = state_info["side"]
+        if not float(merged.get("entry_price") or 0):
+            merged["entry_price"] = state_info["entry_price"]
+        if not float(merged.get("exit_price") or 0):
+            merged["exit_price"] = state_info["exit_price"]
+        if float(merged.get("pnl_usdt") or 0) == 0 and state_info["pnl_usdt"]:
+            merged["pnl_usdt"] = state_info["pnl_usdt"]
+        merged["source"] = "exchange"
+        return merged
+
+    def _format_close_notification(self, close_info: dict[str, Any]) -> str:
+        side_raw = close_info.get("side") or POSITION_SIDE or "Sell"
+        side_label = "Лонг" if side_raw == "Buy" else "Шорт"
+        pnl = float(close_info.get("pnl_usdt") or 0)
+        pnl_sign = "+" if pnl >= 0 else ""
+        source = close_info.get("source", "")
+        source_note = ""
+        if source == "trade_state":
+            source_note = "\nℹ️ Итог по последней цене в алгоритме (Bybit ещё не отдал closed PnL)"
+        return (
+            "🔄 Позиция закрыта\n\n"
+            f"📊 Символ: {close_info.get('symbol') or self.state.symbol}\n"
+            f"📈 Сторона: {side_label}\n"
+            f"💰 Цена входа: {float(close_info.get('entry_price') or 0):.8g}\n"
+            f"💸 Цена выхода: {float(close_info.get('exit_price') or 0):.8g}\n"
+            f"💵 Финальный PnL: {pnl_sign}{pnl:.2f} USDT"
+            f"{source_note}"
+        )
+
+    async def _fetch_closed_position_from_exchange(
+        self,
+        *,
+        retries: int = 3,
+        delay_sec: float = 1.0,
+    ) -> dict[str, Any] | None:
+        if self.http_session is None:
+            return None
+        symbol = self.state.symbol
+        for attempt in range(1, retries + 1):
+            position_info = await self.adapter.get_result_position_info(symbol, self.http_session)
+            if position_info and position_info.get("is_open") is not True:
+                logger.info(
+                    "Closed position from exchange: symbol=%s attempt=%s pnl=%s",
+                    symbol,
+                    attempt,
+                    position_info.get("pnl_usdt"),
+                )
+                return position_info
+            if attempt < retries:
+                await asyncio.sleep(delay_sec)
+        logger.warning("Exchange closed PnL not ready for %s after %s attempts", symbol, retries)
+        return None
+
     async def run(self) -> None:
         try:
             await self._bootstrap()
@@ -461,20 +534,15 @@ class TradeSession:
         current_avg_price = float(info.get("avgPrice", 0))
 
         if current_size == 0:
-            await self.adapter.stop_trading(s.symbol, self.http_session)
             s.should_stop = True
-            closed = await self._persist_closed_trade()
-            closed_info = closed or {}
-            pnl = float(closed_info.get("pnl_usdt") or 0.0)
-            pnl_sign = "+" if pnl >= 0 else ""
-            self._notify_user(
-                "🔄 Позиция закрыта\n\n"
-                f"📊 Символ: {closed_info.get('symbol') or s.symbol}\n"
-                f"📈 Сторона: {'Лонг' if closed_info.get('side') == 'Buy' else 'Шорт'}\n"
-                f"💰 Цена входа: {float(closed_info.get('entry_price') or 0.0):.8g}\n"
-                f"💸 Цена выхода: {float(closed_info.get('exit_price') or 0.0):.8g}\n"
-                f"💵 Финальный PnL: {pnl_sign}{pnl:.2f} USDT",
-            )
+            exchange_info = await self._fetch_closed_position_from_exchange()
+            close_info = self._merge_close_info(exchange_info)
+            await self._persist_closed_trade(close_info)
+            try:
+                await self.adapter.stop_trading(s.symbol, self.http_session)
+            except Exception as e:
+                logger.warning("stop_trading after close %s: %s", s.symbol, e)
+            self._notify_user(self._format_close_notification(close_info))
             return
 
         if s.previous_avg_price is None or s.entry_price is None:
@@ -490,34 +558,39 @@ class TradeSession:
             s.previous_avg_price = current_avg_price
             s.previous_position_size = current_size
 
-    async def _persist_closed_trade(self) -> dict[str, Any] | None:
+    async def _persist_closed_trade(self, close_info: dict[str, Any]) -> None:
+        """Mongo history + statistics; ошибки не блокируют Telegram (данные уже в close_info)."""
         s = self.state
         if s.trade_saved:
-            return s.closed_position_info
+            return
         if self.http_session is None:
-            return None
+            s.closed_position_info = close_info
+            return
+
+        s.closed_position_info = close_info
+        pnl_usdt = float(close_info.get("pnl_usdt") or 0)
+
         try:
-            position_info = await self.adapter.get_result_position_info(s.symbol, self.http_session)
-            if not position_info or position_info.get("is_open") is True:
-                return None
             trade_doc = build_trade_doc(
                 tg_id=int(s.tg_id),
                 name=s.name,
                 symbol=s.symbol,
-                position_info=position_info,
+                position_info=close_info,
             )
             await asyncio.to_thread(history_trades_db.insert_closed_trade, trade_doc)
+        except Exception as e:
+            logger.error("❌ Ошибка insert_closed_trade tg_id=%s: %s", s.tg_id, e, exc_info=True)
+
+        try:
             await asyncio.to_thread(
                 history_trades_db.apply_user_statistics_delta,
                 int(s.tg_id),
-                float(position_info.get("pnl_usdt") or 0.0),
+                pnl_usdt,
             )
-            s.trade_saved = True
-            s.closed_position_info = position_info
-            return position_info
         except Exception as e:
-            logger.error("❌ Ошибка сохранения history_trades/statistics: %s", e)
-            return None
+            logger.error("❌ Ошибка apply_user_statistics_delta tg_id=%s: %s", s.tg_id, e, exc_info=True)
+
+        s.trade_saved = True
 
     async def _maybe_snapshot(self) -> None:
         now = time.time()

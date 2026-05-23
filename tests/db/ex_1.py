@@ -7,7 +7,7 @@
 """
 import asyncio
 
-from users_repository import UsersRepository, UsersRepositoryError
+from database.users_repository import UsersRepository, UsersRepositoryError
 
 client = UsersRepository()
 

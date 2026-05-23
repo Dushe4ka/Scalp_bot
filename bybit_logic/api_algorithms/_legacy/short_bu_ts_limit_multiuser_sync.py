@@ -6,7 +6,7 @@ from bybit_logic.bybit_func import session, position, market, calculator, orders
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
 from celery_app.tasks.notifications import send_notification_to_user_task
-from history_trades_repository import history_trades_db, build_trade_doc
+from database.history_trades_repository import history_trades_db, build_trade_doc
 from logger_config import setup_logger
 import time
 import os

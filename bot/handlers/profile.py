@@ -13,7 +13,7 @@ from bot.keyboards.inline_kb import (
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message
 from bot.utils.misc import _format_dt
-from users_repository import db, UsersRepositoryError, ValidationError
+from database.users_repository import db, UsersRepositoryError, ValidationError
 from bot.languages._lang_func import get_config_lang
 from bot.states.profile_states import ProfileStates
 from typing import Any
