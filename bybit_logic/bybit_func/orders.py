@@ -275,6 +275,142 @@ def place_n_limit_order(
         return None
 
 
+def place_n_limit_order_v2(
+    symbol,
+    base_usdt_amount,
+    side,
+    base_price,
+    session: HTTP,
+    n: int,
+    limit_percentage: float,
+    *,
+    position_idx: int | None = None,
+):
+    """
+    Версия v2 для short/long с фиксированными множителями сумм:
+    1.5x, 2.5x, 4.5x, 7x от base_usdt_amount.
+
+    При limit_percentage=10 и n=4:
+    - ордер #1:  +10% / -10%, сумма base * 1.5
+    - ордер #2:  +20% / -20%, сумма base * 2.5
+    - ордер #3:  +30% / -30%, сумма base * 4.5
+    - ордер #4:  +40% / -40%, сумма base * 7.0
+    """
+    results = []
+    usdt_multipliers = [1.5, 2.5, 4.5, 7.0]
+
+    if n > len(usdt_multipliers):
+        logger.error(
+            "❌ place_n_limit_order_v2 поддерживает максимум %s ордера, передано: %s",
+            len(usdt_multipliers),
+            n,
+        )
+        return None
+
+    try:
+        min_qty, step_size = get_qty_limits(symbol, session)
+
+        for i in range(n):
+            try:
+                order_usdt_amount = base_usdt_amount * usdt_multipliers[i]
+                order_percentage = limit_percentage * (i + 1)
+                limit_price = calculator.calculate_limit_price(base_price, order_percentage, side)
+                qty = order_usdt_amount / limit_price
+
+                if qty < min_qty:
+                    qty = min_qty
+                qty = calculator.round_by_step(qty, step_size)
+
+                if qty < min_qty:
+                    logger.warning(
+                        f"⚠️ Ордер {i+1}/{n} пропущен: после округления количество ({qty}) меньше минимального ({min_qty})"
+                    )
+                    results.append(
+                        {
+                            "order_number": i + 1,
+                            "usdt_amount": order_usdt_amount,
+                            "price": limit_price,
+                            "qty": qty,
+                            "percentage": order_percentage,
+                            "multiplier": usdt_multipliers[i],
+                            "success": False,
+                            "error": f"Qty {qty} меньше минимального {min_qty}",
+                        }
+                    )
+                    continue
+
+                actual_usdt_amount = qty * limit_price
+
+                logger.info(f"Размещение ордера v2 {i+1}/{n}:")
+                logger.info(f"  💵 Целевая сумма: {order_usdt_amount} USDT (x{usdt_multipliers[i]})")
+                logger.info(f"  💰 Фактическая сумма: {actual_usdt_amount:.2f} USDT")
+                logger.info(f"  📊 Цена: {limit_price} ({order_percentage:.1f}% от базовой {base_price})")
+                logger.info(f"  🔢 Количество: {qty}")
+
+                result = place_limit_order(
+                    symbol, qty, side, limit_price, session, position_idx=position_idx
+                )
+
+                if result and result.get("retCode") == 0:
+                    results.append(
+                        {
+                            "order_number": i + 1,
+                            "usdt_amount": order_usdt_amount,
+                            "actual_usdt_amount": actual_usdt_amount,
+                            "price": limit_price,
+                            "qty": qty,
+                            "percentage": order_percentage,
+                            "multiplier": usdt_multipliers[i],
+                            "result": result,
+                            "success": True,
+                        }
+                    )
+                    logger.info(
+                        f"✅ Ордер v2 {i+1}/{n} успешно размещен: orderId={result.get('result', {}).get('orderId')}"
+                    )
+                else:
+                    error_msg = result.get("retMsg", "Unknown error") if result else "No response"
+                    results.append(
+                        {
+                            "order_number": i + 1,
+                            "usdt_amount": order_usdt_amount,
+                            "actual_usdt_amount": actual_usdt_amount,
+                            "price": limit_price,
+                            "qty": qty,
+                            "percentage": order_percentage,
+                            "multiplier": usdt_multipliers[i],
+                            "result": result,
+                            "success": False,
+                            "error": error_msg,
+                        }
+                    )
+                    logger.warning(f"⚠️ Ордер v2 {i+1}/{n} не размещен: {error_msg}")
+
+                if i < n - 1:
+                    import time
+
+                    time.sleep(0.1)
+
+            except Exception as e:
+                logger.error(f"❌ Ошибка при размещении ордера v2 {i+1}/{n}: {e}")
+                results.append(
+                    {
+                        "order_number": i + 1,
+                        "multiplier": usdt_multipliers[i],
+                        "success": False,
+                        "error": str(e),
+                    }
+                )
+
+        successful = sum(1 for r in results if r.get("success"))
+        logger.info(f"📊 Итого размещено ордеров v2: {successful}/{n}")
+        return results
+
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка при размещении n лимитных ордеров v2: {e}")
+        return None
+
+
 def set_stop_loss_with_breakeven_retries(
     symbol: str,
     current_price: float,

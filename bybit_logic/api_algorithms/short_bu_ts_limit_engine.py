@@ -194,7 +194,7 @@ class BybitHttpAdapter:
         position_idx: int | None = None,
     ):
         return await asyncio.to_thread(
-            lambda: orders.place_n_limit_order(
+            lambda: orders.place_n_limit_order_v2(
                 symbol,
                 amount,
                 side,

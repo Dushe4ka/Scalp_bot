@@ -70,3 +70,14 @@ def calculate_limit_price(price: float, percentage: float, side: str = "Buy") ->
         return price * (100 - percentage) / 100
     else:
         return price * (100 + percentage) / 100
+
+def calculate_max_permitted_price(balance: float) -> float:
+    """
+    Рассчитывает максимально допустимую цену для цены входа в позицию
+    Рассчитывается как 1,75% от баланса
+    Args:
+        balance: Баланс в USDT
+    Returns:
+        float: Максимально допустимая цена для цены входа в позицию
+    """
+    return balance * 0.0175
