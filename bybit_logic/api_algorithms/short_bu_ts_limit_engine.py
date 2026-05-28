@@ -26,6 +26,7 @@ from bybit_logic.bybit_func.trailing_stop import TrailingStop
 from bybit_logic.feeds.feed_config import MAX_SESSIONS_PER_ENGINE
 from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
+from celery_app.trade_idempotency import TradeIdempotencyStore
 from celery_app.tasks.notifications import send_notification_to_user_task
 from config import USE_DEMO as USE_DEMO_FROM_ENV
 from database.history_trades_repository import build_trade_doc, history_trades_db
@@ -98,6 +99,7 @@ class TradeStateStore:
     def __init__(self, redis_url: str) -> None:
         self._redis_url = redis_url
         self._client = None
+        self._idempotency = TradeIdempotencyStore(redis_url)
 
     @property
     def client(self):
@@ -110,7 +112,7 @@ class TradeStateStore:
         return f"trade_state:{trade_id}"
 
     def idempotency_key(self, symbol: str, tg_id: int) -> str:
-        return f"trade_cmd:{tg_id}:{symbol.upper()}"
+        return TradeIdempotencyStore.idempotency_key(symbol, tg_id)
 
     async def save_snapshot(self, state: TradeState) -> None:
         payload = asdict(state)
@@ -127,11 +129,12 @@ class TradeStateStore:
         await asyncio.to_thread(self.client.delete, self.snapshot_key(trade_id))
 
     async def acquire_idempotency(self, symbol: str, tg_id: int, ttl_seconds: int = 60 * 60 * 4) -> bool:
-        key = self.idempotency_key(symbol, tg_id)
-        return bool(await asyncio.to_thread(self.client.set, key, "1", ex=ttl_seconds, nx=True))
+        return await asyncio.to_thread(
+            self._idempotency.acquire, symbol, tg_id, ttl_seconds
+        )
 
     async def release_idempotency(self, symbol: str, tg_id: int) -> None:
-        await asyncio.to_thread(self.client.delete, self.idempotency_key(symbol, tg_id))
+        await asyncio.to_thread(self._idempotency.release, symbol, tg_id)
 
 
 class BybitHttpAdapter:
@@ -305,6 +308,30 @@ class TradeSession:
             f"{source_note}"
         )
 
+    async def _save_active_trade(self) -> None:
+        """Создаёт/обновляет активную запись сделки в history_trades."""
+        s = self.state
+        if s.entry_price is None:
+            return
+        position_info = {
+            "side": POSITION_SIDE or "Sell",
+            "entry_price": float(s.entry_price or 0),
+            "exit_price": 0.0,
+            "size": float(s.position_qty or 0),
+            "pnl_usdt": 0.0,
+            "open_time": datetime.utcnow().isoformat(),
+            "close_time": None,
+        }
+        trade_doc = build_trade_doc(
+            tg_id=int(s.tg_id),
+            name=s.name,
+            symbol=s.symbol,
+            position_info=position_info,
+            trade_id=s.trade_id,
+            state="active",
+        )
+        await asyncio.to_thread(history_trades_db.save_trade_by_state, trade_doc, "active")
+
     async def _fetch_closed_position_from_exchange(
         self,
         *,
@@ -447,6 +474,10 @@ class TradeSession:
         s.previous_position_size = s.position_qty
         s.last_position_check_time = time.time()
         s.position_opened = True
+        try:
+            await self._save_active_trade()
+        except Exception as e:
+            logger.error("❌ Ошибка сохранения active trade tg_id=%s: %s", s.tg_id, e, exc_info=True)
 
         sl = calculator.calculate_stop_loss(s.entry_price, STOP_LOSS_PERCENTAGE, POSITION_SIDE)
         await self.adapter.set_stop_loss(s.symbol, sl, self.http_session, position_idx=s.active_position_idx)
@@ -576,8 +607,10 @@ class TradeSession:
                 name=s.name,
                 symbol=s.symbol,
                 position_info=close_info,
+                trade_id=s.trade_id,
+                state="closed",
             )
-            await asyncio.to_thread(history_trades_db.insert_closed_trade, trade_doc)
+            await asyncio.to_thread(history_trades_db.save_trade_by_state, trade_doc, "closed")
         except Exception as e:
             logger.error("❌ Ошибка insert_closed_trade tg_id=%s: %s", s.tg_id, e, exc_info=True)
 
@@ -670,6 +703,49 @@ class AsyncTradeEngine:
         fut.result(timeout=10)
         return tid
 
+    async def _acquire_trade_slot_with_stale_recovery(
+        self,
+        symbol: str,
+        tg_id: int,
+        api_key: str,
+        api_secret: str,
+    ) -> bool:
+        """
+        Берёт слот trade_cmd в Redis. Если ключ уже есть — проверяет Bybit:
+        при отсутствии позиции снимает зависшую блокировку (kill воркера / ручной стоп).
+        """
+        ok = await self.store.acquire_idempotency(symbol=symbol, tg_id=tg_id)
+        if ok:
+            return True
+
+        try:
+            http_session = await self.adapter.create_session(api_key, api_secret)
+            has_position = await self.adapter.if_position_open(http_session, symbol)
+        except Exception as e:
+            logger.warning(
+                "Не удалось проверить позицию при stale lock tg_id=%s symbol=%s: %s",
+                tg_id,
+                symbol,
+                e,
+            )
+            return False
+
+        if has_position:
+            logger.warning(
+                "⏭️ Дубликат: позиция на бирже уже открыта tg_id=%s symbol=%s",
+                tg_id,
+                symbol,
+            )
+            return False
+
+        logger.warning(
+            "🔓 Зависшая блокировка trade_cmd (позиции нет), снимаю: tg_id=%s symbol=%s",
+            tg_id,
+            symbol,
+        )
+        await self.store.release_idempotency(symbol, tg_id)
+        return await self.store.acquire_idempotency(symbol=symbol, tg_id=tg_id)
+
     async def _submit_trade_async(self, trade_id: str, symbol: str, tg_id: int, name: str, api_key: str, api_secret: str, sum_for_trades: float) -> None:
         symbol = symbol.upper()
         if len(self._tasks) >= MAX_SESSIONS_PER_ENGINE:
@@ -677,7 +753,9 @@ class AsyncTradeEngine:
                 f"Engine at capacity ({MAX_SESSIONS_PER_ENGINE} sessions). "
                 "Use trade orchestrator to route to another engine."
             )
-        ok = await self.store.acquire_idempotency(symbol=symbol, tg_id=tg_id)
+        ok = await self._acquire_trade_slot_with_stale_recovery(
+            symbol, tg_id, api_key, api_secret
+        )
         if not ok:
             logger.warning("⏭️ Дубликат команды отфильтрован: tg_id=%s symbol=%s", tg_id, symbol)
             try:

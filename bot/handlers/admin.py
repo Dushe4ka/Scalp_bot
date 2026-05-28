@@ -171,6 +171,49 @@ async def admin_menu(callback: CallbackQuery, lang: str):
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл админ-панель")
 
+
+@router.callback_query(F.data == "admin_stop_all_trading")
+async def admin_stop_all_trading(callback: CallbackQuery, lang: str):
+    """Остановить всю торговлю через server API."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{LOCAL_SERVER_URL}/stop_trading_all_subscribers",
+                timeout=aiohttp.ClientTimeout(total=20),
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    report = (
+                        f"{data.get('message', 'Массовая остановка завершена')}\n\n"
+                        f"👥 Проверено пользователей: {data.get('processed', 0)}\n"
+                        f"✅ Успешно остановлено: {data.get('stopped', 0)}\n"
+                        f"⏭️ Пропущено (нет API ключей): {data.get('skipped_no_keys', 0)}\n"
+                        f"❌ Ошибок: {data.get('errors_count', 0)}"
+                    )
+                    text = text_config["admin_text"]["stop_all_trading_success"].format(
+                        message=report,
+                    )
+                else:
+                    error_text = await response.text()
+                    text = text_config["admin_text"]["stop_all_trading_error"].format(
+                        error=error_text,
+                    )
+    except Exception as e:
+        text = text_config["admin_text"]["stop_all_trading_error"].format(error=str(e))
+        logger.error("Ошибка admin_stop_all_trading: %s", e, exc_info=True)
+
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await admin_menu_kb(user_id, lang)).as_markup(),
+    )
+    logger.info("Админ %s (%s) выполнил остановку всей торговли", user_id, username)
+
 @router.callback_query(F.data == "users_list")
 async def users_list(callback: CallbackQuery, lang: str):
     """Обработка нажатия на кнопку "Список пользователей"""

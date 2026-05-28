@@ -13,15 +13,15 @@ logger = setup_logger(__name__)
 def _user_notification_bot_token() -> str | None:
     """
     Токен бота для личных уведомлений multiuser (send_notification_to_user).
-    Приоритет: CELERY_TRADING_BOT_TOKEN → TEST_TELEGRAM_BOT_TOKEN → TELEGRAM_BOT_TOKEN.
+    Приоритет: CELERY_TRADING_BOT_TOKEN → CELERY_SUBSCRIBERS_BOT_TOKEN → TELEGRAM_BOT_TOKEN → TEST_TELEGRAM_BOT_TOKEN.
     """
     from bot.config import TEST_TELEGRAM_BOT_TOKEN
 
     raw = (
         os.getenv("CELERY_TRADING_BOT_TOKEN")
         or os.getenv("CELERY_SUBSCRIBERS_BOT_TOKEN")
-        or TEST_TELEGRAM_BOT_TOKEN
         or TELEGRAM_BOT_TOKEN
+        or TEST_TELEGRAM_BOT_TOKEN
         or ""
     )
     return str(raw).strip() or None

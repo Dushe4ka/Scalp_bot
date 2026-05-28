@@ -2,6 +2,11 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from bot.languages._lang_func import get_config_lang
 from bot.callback_data.admin_lists import (
     ADMIN_LIST_PAGE_SIZE,
+    ActiveTradeItemCb,
+    ActiveTradesPageCb,
+    HISTORY_TRADES_PAGE_SIZE,
+    HistoryTradeItemCb,
+    HistoryTradesPageCb,
     SubscribersListPageCb,
     SubscribersUserCb,
     WaitConfirmListPageCb,
@@ -339,6 +344,126 @@ async def back_to_profile_settings_kb(user_id: int, lang: str) -> InlineKeyboard
     return kb
 
 
+async def profile_settings_sum_risk_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Подтверждение рискованной суммы сделки.
+    """
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    kb.button(text=cfg["profile_btn"]["confirm_risk_sum_for_trades"], callback_data="profile_settings_sum_risk_confirm")
+    kb.button(text=cfg["profile_btn"]["cancel_risk_sum_for_trades"], callback_data="profile_settings_sum_risk_cancel")
+    kb.button(text=cfg["general"]["back"], callback_data="settings_profile")
+    kb.adjust(1)
+    return kb
+
+
+async def profile_balance_kb(lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки в разделе баланса профиля.
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="profile_menu")
+    kb.adjust(1)
+    return kb
+
+
+async def history_trades_page_kb(
+    entries: list[dict],
+    page: int,
+    total: int,
+    lang: str,
+) -> InlineKeyboardBuilder:
+    """Пагинированная история сделок пользователя."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    for idx, row in enumerate(entries):
+        symbol = str(row.get("symbol") or "—")
+        dt = row.get("created_at") or row.get("open_time") or row.get("close_time")
+        dt_text = str(dt)[:16] if dt is not None else "—"
+        kb.button(
+            text=f"{symbol} | {dt_text}",
+            callback_data=HistoryTradeItemCb(page=int(page), idx=int(idx)),
+        )
+
+    if total > 0:
+        total_pages = max(1, (total + HISTORY_TRADES_PAGE_SIZE - 1) // HISTORY_TRADES_PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        if page > 0:
+            kb.button(
+                text=cfg["admin_btn"]["list_prev_page"],
+                callback_data=HistoryTradesPageCb(page=page - 1),
+            )
+        if (page + 1) * HISTORY_TRADES_PAGE_SIZE < total:
+            kb.button(
+                text=cfg["admin_btn"]["list_next_page"],
+                callback_data=HistoryTradesPageCb(page=page + 1),
+            )
+
+    kb.button(text=cfg["general"]["back"], callback_data="profile_menu")
+    kb.adjust(1)
+    return kb
+
+
+async def history_trade_details_kb(page: int, lang: str) -> InlineKeyboardBuilder:
+    """Кнопки на карточке сделки."""
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data=HistoryTradesPageCb(page=int(page)))
+    kb.adjust(1)
+    return kb
+
+
+async def profile_trading_kb(lang: str) -> InlineKeyboardBuilder:
+    """Меню торговли в профиле."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    kb.button(text=cfg["profile_btn"]["active_trades"], callback_data="active_trades")
+    kb.button(text=cfg["profile_btn"]["stop_all_trading"], callback_data="profile_stop_all_trading")
+    kb.button(text=cfg["general"]["back"], callback_data="profile_menu")
+    kb.adjust(1)
+    return kb
+
+
+async def active_trades_page_kb(
+    entries: list[dict],
+    page: int,
+    total: int,
+    lang: str,
+) -> InlineKeyboardBuilder:
+    """Пагинированный список активных сделок пользователя."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    for idx, row in enumerate(entries):
+        symbol = str(row.get("symbol") or "—")
+        dt = row.get("open_time")
+        dt_text = str(dt)[:16] if dt is not None else "—"
+        kb.button(
+            text=f"{symbol} | {dt_text}",
+            callback_data=ActiveTradeItemCb(page=int(page), idx=int(idx)),
+        )
+
+    if total > 0:
+        total_pages = max(1, (total + HISTORY_TRADES_PAGE_SIZE - 1) // HISTORY_TRADES_PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+        if page > 0:
+            kb.button(text=cfg["admin_btn"]["list_prev_page"], callback_data=ActiveTradesPageCb(page=page - 1))
+        if (page + 1) * HISTORY_TRADES_PAGE_SIZE < total:
+            kb.button(text=cfg["admin_btn"]["list_next_page"], callback_data=ActiveTradesPageCb(page=page + 1))
+
+    kb.button(text=cfg["general"]["back"], callback_data="trading")
+    kb.adjust(1)
+    return kb
+
+
+async def active_trade_details_kb(symbol: str, page: int, lang: str) -> InlineKeyboardBuilder:
+    """Кнопки в карточке активной сделки."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    kb.button(text=cfg["profile_btn"]["stop_current_trade"], callback_data=f"active_trade_stop:{symbol}")
+    kb.button(text=cfg["general"]["back"], callback_data=ActiveTradesPageCb(page=int(page)))
+    kb.adjust(1)
+    return kb
+
+
 # -------------------------------------------------------------
 # Admin keyboards
 # -------------------------------------------------------------
@@ -350,6 +475,7 @@ async def admin_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["users_list"], callback_data="users_list")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["statistics_project"], callback_data="statistics_project")
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["stop_all_trading"], callback_data="admin_stop_all_trading")
     kb.button(text=(await get_config_lang(lang))["admin_btn"]["server"], callback_data="server")
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
     kb.adjust(1)

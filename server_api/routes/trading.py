@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest
+from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest, UserSymbolRequest, UserRequest
 from logger_config import setup_logger
 from celery_app.tasks.short_3_limit import short_3_limit
 from celery_app.tasks.short_3_limit_nomulti import (
@@ -9,11 +9,12 @@ from celery_app.tasks.short_3_limit_nomulti import (
 from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
 from celery_app.tasks.custom_algo_nomulti import nomulti_custom_algo_task
 from bybit_logic.bybit_func import session, stop_trade, position
-from server_api.utils import validate_and_clean_symbol
+from server_api.utils import validate_and_clean_symbol, get_user_http_session_or_404
 from config import USE_DEMO
 from database.users_repository import db
 from database.custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
 from bybit_logic.feeds.feed_config import TRADE_SUBMIT_STAGGER_SEC
+from celery_app.trade_idempotency import clear_all_trade_locks_for_user, clear_trade_lock
 
 router = APIRouter()
 logger = setup_logger(__name__)
@@ -230,6 +231,55 @@ async def stop_trading_all():
         logger.error(f"❌ Ошибка остановки всех алгоритмов: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/stop_trading_all_subscribers")
+async def stop_trading_all_subscribers():
+    """
+    Останавливает торговлю у всех пользователей-кандидатов из БД
+    (каждый пользователь — через его API key/secret).
+    """
+    try:
+        users = await db.list_trading_candidates()
+        processed = 0
+        stopped = 0
+        skipped_no_keys = 0
+        errors: list[dict] = []
+
+        for user in users:
+            tg_id = int(user.get("tg_id") or 0)
+            bybit_data = user.get("bybit_data") or {}
+            api_key = (bybit_data.get("api_key") or "").strip()
+            api_secret = (bybit_data.get("api_secret") or "").strip()
+            if not api_key or not api_secret:
+                skipped_no_keys += 1
+                continue
+
+            processed += 1
+            try:
+                http_session = session.create_session(
+                    use_demo=USE_DEMO,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                )
+                stop_trade.stop_all_trading(http_session)
+                clear_all_trade_locks_for_user(tg_id)
+                stopped += 1
+            except Exception as e:
+                logger.error("❌ stop_trading_all_subscribers error tg_id=%s: %s", tg_id, e)
+                errors.append({"tg_id": tg_id, "error": str(e)})
+
+        return {
+            "message": "Массовая остановка торговли завершена",
+            "processed": processed,
+            "stopped": stopped,
+            "skipped_no_keys": skipped_no_keys,
+            "errors_count": len(errors),
+            "errors": errors[:20],
+        }
+    except Exception as e:
+        logger.error("❌ Ошибка stop_trading_all_subscribers: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/result_position_info_by_symbol")
 async def result_position_info_by_symbol(request: SymbolRequest):
     """Получает информацию о позиции"""
@@ -242,4 +292,84 @@ async def result_position_info_by_symbol(request: SymbolRequest):
         return {"result": result}
     except Exception as e:
         logger.error(f"❌ Ошибка получения информации о позиции: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user_active_trades")
+async def user_active_trades(request: UserRequest):
+    """Возвращает активные позиции пользователя (по его API ключам)."""
+    try:
+        http_session = await get_user_http_session_or_404(request.tg_id)
+        response = position.get_all_positions(http_session)
+        rows = response.get("result", {}).get("list", []) if response else []
+        active = []
+        for row in rows:
+            size = float(row.get("size", 0) or 0)
+            if size <= 0:
+                continue
+            active.append(
+                {
+                    "symbol": str(row.get("symbol") or ""),
+                    "side": str(row.get("side") or ""),
+                    "size": size,
+                    "entry_price": float(row.get("avgPrice", 0) or 0),
+                    "position_idx": int(row.get("positionIdx", 0) or 0),
+                    "open_time": row.get("createdTime"),
+                }
+            )
+        return {"tg_id": int(request.tg_id), "active_trades": active}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("❌ Ошибка user_active_trades: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user_result_position_info_by_symbol")
+async def user_result_position_info_by_symbol(request: UserSymbolRequest):
+    """Текущая информация по позиции пользователя для символа."""
+    try:
+        http_session = await get_user_http_session_or_404(request.tg_id)
+        symbol = validate_and_clean_symbol(request.symbol).upper()
+        result = position.result_position_info_data(symbol, http_session)
+        return {"tg_id": int(request.tg_id), "symbol": symbol, "result": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("❌ Ошибка user_result_position_info_by_symbol: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user_stop_trading_by_symbol")
+async def user_stop_trading_by_symbol(request: UserSymbolRequest):
+    """Останавливает торговлю пользователя по символу (ордера + позиция)."""
+    try:
+        http_session = await get_user_http_session_or_404(request.tg_id)
+        symbol = validate_and_clean_symbol(request.symbol).upper()
+        stop_trade.stop_trading_by_symbol(symbol, http_session)
+        clear_trade_lock(int(request.tg_id), symbol)
+        return {"message": "Торговля по символу остановлена", "symbol": symbol}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("❌ Ошибка user_stop_trading_by_symbol: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/user_stop_trading_all")
+async def user_stop_trading_all(request: UserRequest):
+    """Останавливает всю торговлю пользователя."""
+    try:
+        http_session = await get_user_http_session_or_404(request.tg_id)
+        stop_trade.stop_all_trading(http_session)
+        locks_cleared = clear_all_trade_locks_for_user(int(request.tg_id))
+        return {
+            "message": "Вся торговля пользователя остановлена",
+            "tg_id": int(request.tg_id),
+            "locks_cleared": locks_cleared,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("❌ Ошибка user_stop_trading_all: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

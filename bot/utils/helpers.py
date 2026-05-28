@@ -1,9 +1,14 @@
+import asyncio
+from typing import Any
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 from database.subscribers import get_subscribers
 from bot.utils.misc import bot
-from config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID
+from config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID, TECH_SUPPORT_ID
 from logger_config import setup_logger
+from bybit_logic.bybit_func import account, calculator
+from bybit_logic.bybit_func.session import create_session
+from config import USE_DEMO
 import requests
 import time
 
@@ -240,15 +245,55 @@ def send_to_subscribers_sync(text: str, *, bot_token: str | None = None) -> dict
 
 async def send_info_payment_to_admin(payment_id: str, user_id: int, username: str) -> bool:
     """
-    Отправка информации о платеже администратору
+    Отправка информации о платеже:
+    1) в техподдержку (если задан TECH_SUPPORT_ID),
+    2) затем администратору.
     """
+    text = f"Пользователь {username} ({user_id}) Оплатил подписку. ID платежа: {payment_id}"
+    support_ok = True
+    admin_ok = True
+
     try:
-        text = f"Пользователь {username} ({user_id}) Оплатил подписку. ID платежа: {payment_id}"
+        if TECH_SUPPORT_ID:
+            await bot.send_message(
+                chat_id=TECH_SUPPORT_ID,
+                text=text
+            )
+        else:
+            logger.warning("TECH_SUPPORT_ID не задан, отправка сообщения в техподдержку пропущена")
+    except Exception as e:
+        support_ok = False
+        logger.error(f"Ошибка при отправке информации о платеже в техподдержку: {e}")
+
+    try:
         await bot.send_message(
             chat_id=ADMIN_CHAT_ID,
             text=text
         )
-        return True
     except Exception as e:
+        admin_ok = False
         logger.error(f"Ошибка при отправке информации о платеже администратору: {e}")
-        return False
+
+    return support_ok and admin_ok
+
+
+def extract_user_api_credentials(user: dict[str, Any]) -> tuple[str, str]:
+    bybit_data = user.get("bybit_data") or {}
+    api_key = str(bybit_data.get("api_key") or "").strip()
+    api_secret = str(bybit_data.get("api_secret") or "").strip()
+    return api_key, api_secret
+
+
+async def get_recommended_trade_amount(user: dict[str, Any]) -> float | None:
+    api_key, api_secret = extract_user_api_credentials(user)
+    if not api_key or not api_secret:
+        return None
+
+    try:
+        session = create_session(use_demo=USE_DEMO, api_key=api_key, api_secret=api_secret)
+        balance = await asyncio.to_thread(account.get_futures_balance, session)
+        recommended = calculator.calculate_max_permitted_price(float(balance))
+        return round(float(recommended), 2)
+    except Exception as e:
+        logger.warning("Не удалось рассчитать рекомендованную сумму сделки: %s", e)
+        return None

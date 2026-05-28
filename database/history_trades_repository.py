@@ -25,6 +25,48 @@ class HistoryTradesRepository:
             logger.error("Ошибка insert_closed_trade: %s", e, exc_info=True)
             raise
 
+    def save_trade_by_state(self, trade_doc: dict[str, Any], state: str) -> None:
+        """
+        Сохраняет историю сделки по состоянию:
+        - active: создаёт/обновляет активную запись (upsert по trade_id + tg_id)
+        - closed: переводит существующую запись в closed и обновляет поля
+        """
+        normalized_state = str(state).strip().lower()
+        if normalized_state not in ("active", "closed"):
+            raise ValueError(f"Некорректный state={state}. Ожидается active|closed")
+
+        payload = dict(trade_doc)
+        payload["state"] = normalized_state
+        payload["updated_at"] = datetime.utcnow()
+        if normalized_state == "active":
+            payload.setdefault("created_at", datetime.utcnow())
+        else:
+            payload["closed_at"] = datetime.utcnow()
+
+        trade_id = payload.get("trade_id")
+        tg_id = payload.get("tg_id")
+        symbol = payload.get("symbol")
+        if not trade_id or tg_id is None:
+            raise ValueError("Для save_trade_by_state обязательны trade_id и tg_id")
+
+        try:
+            query = {"trade_id": trade_id, "tg_id": int(tg_id)}
+            if normalized_state == "active":
+                self._history.update_one(query, {"$set": payload}, upsert=True)
+                return
+
+            result = self._history.update_one(query, {"$set": payload}, upsert=False)
+            # Fallback для старых записей без trade_id.
+            if result.matched_count == 0 and symbol:
+                self._history.update_one(
+                    {"tg_id": int(tg_id), "symbol": symbol, "state": "active"},
+                    {"$set": payload},
+                    upsert=False,
+                )
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка save_trade_by_state: %s", e, exc_info=True)
+            raise
+
     def apply_user_statistics_delta(self, tg_id: int, pnl_usdt: float) -> None:
         inc_fields: dict[str, float | int] = {
             "statistics.total_trades": 1,
@@ -44,6 +86,43 @@ class HistoryTradesRepository:
             logger.error("Ошибка apply_user_statistics_delta: %s", e, exc_info=True)
             raise
 
+    def list_user_trades(self, tg_id: int, limit: int = 10) -> list[dict[str, Any]]:
+        """Последние сделки пользователя по убыванию created_at."""
+        lim = max(1, min(int(limit), 50))
+        try:
+            cursor = (
+                self._history.find({"tg_id": int(tg_id)}, {"_id": 0})
+                .sort("created_at", -1)
+                .limit(lim)
+            )
+            return list(cursor)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_user_trades: %s", e, exc_info=True)
+            raise
+
+    def count_user_trades(self, tg_id: int) -> int:
+        try:
+            return int(self._history.count_documents({"tg_id": int(tg_id)}))
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка count_user_trades: %s", e, exc_info=True)
+            raise
+
+    def list_user_trades_page(self, tg_id: int, *, page: int, page_size: int) -> list[dict[str, Any]]:
+        pg = max(0, int(page))
+        size = max(1, min(int(page_size), 50))
+        skip = pg * size
+        try:
+            cursor = (
+                self._history.find({"tg_id": int(tg_id)}, {"_id": 0})
+                .sort("created_at", -1)
+                .skip(skip)
+                .limit(size)
+            )
+            return list(cursor)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_user_trades_page: %s", e, exc_info=True)
+            raise
+
 
 history_trades_db = HistoryTradesRepository()
 
@@ -53,8 +132,12 @@ def build_trade_doc(
     name: str,
     symbol: str,
     position_info: dict[str, Any],
+    *,
+    trade_id: str | None = None,
+    state: str = "closed",
 ) -> dict[str, Any]:
     return {
+        "trade_id": trade_id,
         "tg_id": int(tg_id),
         "name": name,
         "symbol": symbol,
@@ -66,5 +149,7 @@ def build_trade_doc(
         "open_time": position_info.get("open_time"),
         "close_time": position_info.get("close_time"),
         "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "state": state,
         "source": "short_3_limit",
     }

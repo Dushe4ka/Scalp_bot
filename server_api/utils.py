@@ -1,4 +1,8 @@
 import re
+from fastapi import HTTPException
+from database.users_repository import db
+from bybit_logic.bybit_func import session
+from config import USE_DEMO
 
 def validate_and_clean_symbol(symbol: str) -> str:
     """
@@ -54,3 +58,21 @@ def validate_and_clean_symbol(symbol: str) -> str:
         pass
     
     return symbol
+
+
+async def get_user_http_session_or_404(tg_id: int):
+    """
+    Возвращает Bybit HTTP-сессию пользователя по tg_id.
+    Поднимает HTTPException(404/400), если пользователь/ключи невалидны.
+    """
+    user = await db.get_user(int(tg_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    bybit_data = user.get("bybit_data") or {}
+    api_key = (bybit_data.get("api_key") or "").strip()
+    api_secret = (bybit_data.get("api_secret") or "").strip()
+    if not api_key or not api_secret:
+        raise HTTPException(status_code=400, detail="У пользователя не указаны API key/secret")
+
+    return session.create_session(use_demo=USE_DEMO, api_key=api_key, api_secret=api_secret)

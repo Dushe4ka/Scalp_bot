@@ -24,6 +24,7 @@ URL_TGCHANNEL=os.getenv("URL_TGCHANNEL")
 URL_PAYMENT=os.getenv("URL_PAYMENT")
 ADMIN_CHAT_ID=os.getenv("ADMIN_CHAT_ID")
 URL_TECH_SUPPORT=os.getenv("URL_TECH_SUPPORT")
+TECH_SUPPORT_ID=os.getenv("TECH_SUPPORT_ID")
 
 # Поддержка нескольких админов: ADMIN_IDS=1,2,3
 ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")

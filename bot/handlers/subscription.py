@@ -16,7 +16,7 @@ from bot.keyboards.inline_kb import (
 
 )
 from logger_config import setup_logger
-from bot.utils.helpers import safe_edit_message
+from bot.utils.helpers import safe_edit_message, send_info_payment_to_admin
 from database.users_repository import db
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
@@ -64,6 +64,7 @@ async def paid(callback: CallbackQuery, state: FSMContext, lang: str):
     username = callback.from_user.username or ""
 
     await state.clear()
+    await state.update_data(payment_flow="buy", payment_info_sent_to_admin=False)
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["paid"]
@@ -84,6 +85,7 @@ async def input_payment_id(callback: CallbackQuery, state: FSMContext, lang: str
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["input_payment_id"]  # например "Введите ID платежа в чат"
 
+    await state.update_data(payment_flow="buy", payment_info_sent_to_admin=False)
     await state.set_state(SubscriptionStates.waiting_payment_id)
 
     await safe_edit_message(
@@ -96,18 +98,35 @@ async def input_payment_id(callback: CallbackQuery, state: FSMContext, lang: str
 @router.message(SubscriptionStates.waiting_payment_id, F.text)
 async def process_payment_id_message(message: Message, state: FSMContext, lang: str):
     """Пользователь прислал ID платежа текстовым сообщением"""
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
     payment_id = message.text.strip()
+
+    data = await state.get_data()
+    if not data.get("payment_info_sent_to_admin"):
+        sent = await send_info_payment_to_admin(payment_id, user_id, username)
+        if sent:
+            await state.update_data(payment_info_sent_to_admin=True)
+        else:
+            logger.warning(
+                "Не удалось отправить ID платежа админу сразу после ввода: user_id=%s",
+                user_id,
+            )
+
+    text_config = await get_config_lang(lang)
+    payment_flow = str(data.get("payment_flow") or "buy").strip().lower()
+    confirm_text = text_config["subscription_text"]["confirm_payment"].format(payment_id=payment_id)
 
     await state.update_data(payment_id=payment_id)
     await state.set_state(SubscriptionStates.waiting_confirm)
 
-    text_config = await get_config_lang(lang)
-    confirm_text = text_config["subscription_text"]["confirm_payment"].format(payment_id=payment_id)
-    # например: "Все верно: {payment_id}"
-
     await message.answer(
         confirm_text,
-        reply_markup=(await confirm_payment_kb(lang)).as_markup()  # кнопки "Да ✓" / "Нет ✗"
+        reply_markup=(
+            (await prolong_confirm_payment_kb(lang)).as_markup()
+            if payment_flow == "prolong"
+            else (await confirm_payment_kb(lang)).as_markup()
+        )
     )
 
 @router.callback_query(F.data == "confirm_payment")
@@ -168,6 +187,7 @@ async def prolong_paid(callback: CallbackQuery, state: FSMContext, lang: str):
     username = callback.from_user.username or ""
 
     await state.clear()
+    await state.update_data(payment_flow="prolong", payment_info_sent_to_admin=False)
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["prolong_paid"]
@@ -185,6 +205,7 @@ async def prolong_input_payment_id(callback: CallbackQuery, state: FSMContext, l
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
 
+    await state.update_data(payment_flow="prolong", payment_info_sent_to_admin=False)
     await state.set_state(SubscriptionStates.waiting_payment_id)
     
     text_config = await get_config_lang(lang)
@@ -196,23 +217,6 @@ async def prolong_input_payment_id(callback: CallbackQuery, state: FSMContext, l
         reply_markup=(await prolong_input_payment_id_back_kb(lang)).as_markup()
     )
     logger.info(f"Пользователь {user_id} ({username}) перешёл в ввод ID платежа продления подписки")
-
-@router.message(SubscriptionStates.waiting_payment_id, F.text)
-async def process_prolong_payment_id_message(message: Message, state: FSMContext, lang: str):
-    """Пользователь прислал ID платежа текстовым сообщением продления подписки"""
-    payment_id = message.text.strip()
-
-    await state.update_data(payment_id=payment_id)
-    await state.set_state(SubscriptionStates.waiting_confirm)
-
-    text_config = await get_config_lang(lang)
-    confirm_text = text_config["subscription_text"]["confirm_payment"].format(payment_id=payment_id)
-    # например: "Все верно: {payment_id}"
-
-    await message.answer(
-        confirm_text,
-        reply_markup=(await prolong_confirm_payment_kb(lang)).as_markup()  # кнопки "Да ✓" / "Нет ✗"
-    )
 
 @router.callback_query(F.data == "prolong_confirm_payment")
 async def prolong_confirm_payment(callback: CallbackQuery, state: FSMContext, lang: str):

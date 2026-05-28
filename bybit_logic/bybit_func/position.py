@@ -35,8 +35,9 @@ def get_all_positions(session: HTTP) -> dict:
     """
     try:
         return session.get_positions(
-        category="linear"
-    )
+            category="linear",
+            settleCoin="USDT",
+        )
     except Exception as e:
         logger.error(f"Error getting all positions: {e}")
         return None
