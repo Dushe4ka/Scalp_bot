@@ -45,8 +45,7 @@ SERVER_URL=https://ваш-туннель.trycloudflare.com   # для webhook / 
 
 TELEGRAM_BOT_TOKEN=...          # боевой бот (если без тестового)
 TEST_TELEGRAM_BOT_TOKEN=...     # тестовый бот — см. bot/utils/misc.py
-ADMIN_CHAT_ID=...
-ADMIN_IDS=...
+ADMIN_IDS=1395854084,525006772
 
 # Celery шлёт уведомления через TELEGRAM_BOT_TOKEN, не через TEST_*
 # Чтобы уведомления шли в тестового бота:

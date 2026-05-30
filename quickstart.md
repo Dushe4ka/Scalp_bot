@@ -111,11 +111,12 @@ PRICE_FEED_REDIS_ENABLED=true
 PRICE_FEED_LOCAL_FALLBACK=true
 TRADE_SUBMIT_STAGGER_SEC=0.03
 MARKET_FEED_SYMBOL_IDLE_SEC=3600
+SUBSCRIPTION_LIFECYCLE_CHECK_HOURS=12
 ```
 
 Для ~1000 одновременных short: `TRADE_ENGINE_COUNT=34` (34×30=1020 слотов) и столько же engine-воркеров.
 
-## Запуск сервисов (7 терминалов на локальной машине)
+## Запуск сервисов (7+ терминалов на локальной машине)
 
 Из корня проекта, venv активирован.
 
@@ -165,11 +166,145 @@ celery -A celery_app.celery_config worker \
   -Q default,trade_user --concurrency=4 -l info
 ```
 
+**Терминал 5b — Celery Beat** (проверка подписок каждые 12 ч: напоминания за 3/1 день, отключение по истечении)
+
+```bash
+celery -A celery_app.celery_config beat -l info
+```
+
+Интервал задаётся в `.env`: `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS=12`.  
+Задача `check_subscription_lifecycle` выполняется на **router**-воркере (очередь `default`). Beat должен быть **один** процесс на весь кластер.
+
 **Терминал 6 — Telegram-бот (опционально для админки)**
 
 ```bash
 python -m bot.main
 ```
+
+### PM2 — Python-сервисы (API, feed, бот)
+
+Удобно на VPS: автоперезапуск, логи, `pm2 save` после ребута.
+
+Перед первым запуском — из **корня проекта** (где лежат `server_api/`, `bot/`, `myvenv/`):
+
+```bash
+cd ~/multiuser_bot/Scalp_bot   # свой путь к проекту
+```
+
+Аргументы `-m ...` передаются Python **после `--`**, иначе PM2 ищет файл `server_api.main`.
+
+**Старт (3 процесса)**
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-api -- -m server_api.main
+pm2 start ./myvenv/bin/python --name scalp-feed -- -m services.market_price_feed
+pm2 start ./myvenv/bin/python --name scalp-bot -- -m bot.main
+```
+
+С явным `cwd` (если запускаешь не из корня проекта):
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-api --cwd /root/multiuser_bot/Scalp_bot -- -m server_api.main
+pm2 start ./myvenv/bin/python --name scalp-feed --cwd /root/multiuser_bot/Scalp_bot -- -m services.market_price_feed
+pm2 start ./myvenv/bin/python --name scalp-bot --cwd /root/multiuser_bot/Scalp_bot -- -m bot.main
+```
+
+Перед повторным стартом (если уже пробовали с ошибкой):
+
+```bash
+pm2 delete scalp-api scalp-feed scalp-bot 2>/dev/null
+```
+
+**Управление**
+
+```bash
+pm2 status
+pm2 logs scalp-api          # или scalp-feed, scalp-bot
+pm2 restart scalp-api
+pm2 stop scalp-api scalp-feed scalp-bot
+pm2 delete scalp-api scalp-feed scalp-bot
+pm2 save                    # сохранить список процессов
+pm2 startup                 # автозапуск после перезагрузки ОС (один раз, выполни команду из вывода)
+```
+
+Проверка API: `curl http://127.0.0.1:8050/health`
+
+> Celery через PM2 тоже можно, но ниже — вариант со **screen** (удобнее смотреть live-логи воркеров).
+
+---
+
+### Screen — Celery (router + engine workers)
+
+Celery лучше держать в отдельных screen-сессиях рядом с PM2-процессами.
+
+```bash
+cd /path/to/Scalp_bot
+source myvenv/bin/activate
+```
+
+**Создать сессии в фоне** (`TRADE_ENGINE_COUNT=2` — два engine, как в примере выше)
+
+```bash
+# Router (очереди default, trade_user)
+screen -dmS scalp-router bash -lc '
+  cd /path/to/Scalp_bot && source myvenv/bin/activate &&
+  celery -A celery_app.celery_config worker \
+    -Q default,trade_user --concurrency=4 -l info
+'
+
+# Celery Beat — проверка подписок (один экземпляр)
+screen -dmS scalp-beat bash -lc '
+  cd /path/to/Scalp_bot && source myvenv/bin/activate &&
+  celery -A celery_app.celery_config beat -l info
+'
+
+# Engine 0
+screen -dmS scalp-engine0 bash -lc '
+  cd /path/to/Scalp_bot && source myvenv/bin/activate &&
+  CELERY_ENGINE_ID=0 celery -A celery_app.celery_config worker \
+    -Q trade_engine_0 -n engine0@%h --concurrency=1 -l info
+'
+
+# Engine 1
+screen -dmS scalp-engine1 bash -lc '
+  cd /path/to/Scalp_bot && source myvenv/bin/activate &&
+  CELERY_ENGINE_ID=1 celery -A celery_app.celery_config worker \
+    -Q trade_engine_1 -n engine1@%h --concurrency=1 -l info
+'
+```
+
+**Подключиться к логам**
+
+```bash
+screen -ls
+screen -r scalp-router    # выход: Ctrl+A, затем D
+screen -r scalp-beat
+screen -r scalp-engine0
+screen -r scalp-engine1
+```
+
+**Остановить**
+
+```bash
+screen -S scalp-router -X quit
+screen -S scalp-beat -X quit
+screen -S scalp-engine0 -X quit
+screen -S scalp-engine1 -X quit
+```
+
+**Рекомендуемый порядок старта (production)**
+
+1. Redis + MongoDB  
+2. `pm2 start` — **scalp-feed**  
+3. **screen** — engine workers (`trade_engine_0` …)  
+4. **screen** — **scalp-router**  
+5. **screen** — **scalp-beat** (проверка подписок)  
+6. `pm2 start` — **scalp-api**  
+7. `pm2 start` — **scalp-bot** (если нужен Telegram)
+
+После смены `.env` (например `USE_DEMO`): `pm2 restart all` и перезапусти screen-сессии Celery.
+
+---
 
 ## Запуск торговли (multi)
 
@@ -198,6 +333,45 @@ curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
 - `bybit_data.stop_trading` не `true`
 
 Иначе он будет пропущен при `/short_3_limit`.
+
+## Жизненный цикл подписки (Celery Beat)
+
+Помимо ручного подтверждения админом, срок подписки контролируется автоматически.
+
+### Что делает сервис
+
+Каждые `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` часов (по умолчанию **12**) задача `check_subscription_lifecycle`:
+
+1. Находит пользователей с `subscription=true` и заполненной `end_subscription_date`.
+2. **За 3 дня** до окончания — отправляет напоминание в Telegram.
+3. **За 1 день** — второе напоминание.
+4. **После истечения** — ставит `subscription=false`, сбрасывает `wait_sub_confirmation`, уведомляет об отключении.
+
+Повторные напоминания для одной и той же даты окончания не отправляются (поля `notify_3d_for_end`, `notify_1d_for_end`, `notify_expired_for_end` в Mongo).
+
+### Запуск
+
+```bash
+# Beat (один процесс на сервер)
+celery -A celery_app.celery_config beat -l info
+
+# Router должен слушать default — там выполняется задача
+celery -A celery_app.celery_config worker -Q default,trade_user --concurrency=4 -l info
+```
+
+`.env`:
+
+```env
+SUBSCRIPTION_LIFECYCLE_CHECK_HOURS=12
+```
+
+Ручная проверка:
+
+```bash
+celery -A celery_app.celery_config call check_subscription_lifecycle
+```
+
+Полное описание: [README.md](README.md) (раздел «Жизненный цикл подписки»).
 
 ## Demo-тест: 2 аккаунта Bybit
 
@@ -274,7 +448,7 @@ SHORT_BU_TS_LIMIT_USDT_AMOUNT=10
 # или USDT_AMOUNT=10
 
 NOMULTI_TG_ID=123456789
-ADMIN_CHAT_ID=123456789
+ADMIN_IDS=123456789,987654321
 NOMULTI_USER_NAME=nomulti
 
 USE_DEMO=true
@@ -326,7 +500,7 @@ curl -X POST http://127.0.0.1:8050/nomulti_short_3_limit -d "BTCUSDT"
 | Событие | Кому |
 |---------|------|
 | Старт short, дубликат | Все из Mongo `subscribers` (кто нажал «Подписаться» в nomulti-боте) |
-| Закрытие позиции, ошибка плеча | `NOMULTI_TG_ID` / `ADMIN_CHAT_ID` |
+| Закрытие позиции, ошибка плеча | `NOMULTI_TG_ID` или первый ID из `ADMIN_IDS` |
 | Hedge | Рассылка `subscribers` |
 
 Для рассылки из Celery токен бота должен совпадать с ботом подписки (`TELEGRAM_BOT_TOKEN` или `CELERY_SUBSCRIBERS_BOT_TOKEN`).
@@ -456,6 +630,7 @@ watch -n 2 'redis-cli GET engine:0:load; redis-cli GET engine:1:load; redis-cli 
 | `market_price_feed` | да (short) | нет |
 | `trade_engine_*` workers | да (short) | нет |
 | Celery `trade_user` router | да | да (один worker) |
+| Celery Beat (подписки) | да | опционально (multi) |
 | `bot.main` | опционально | — |
 | `bot_nomultiuser.main` | опционально | да |
 
@@ -469,6 +644,7 @@ watch -n 2 'redis-cli GET engine:0:load; redis-cli GET engine:1:load; redis-cli 
 | Celery не берёт задачи | Redis, worker слушает нужные очереди |
 | Short multi не торгует | Запущены engine workers + feed |
 | Нет Telegram | `TELEGRAM_BOT_TOKEN`, Celery worker для `notifications` |
+| Напоминания о подписке не приходят | Запущен ли **Celery Beat**; router слушает `default`; у пользователя есть `end_subscription_date` |
 | Rate limit Bybit | Увеличить `TRADE_SUBMIT_STAGGER_SEC` |
 
 ---

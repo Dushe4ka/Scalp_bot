@@ -390,7 +390,9 @@ class TradeSession:
             return
 
         if os.getenv("FORCE_LINEAR_ONE_WAY", "true").strip().lower() in ("true", "1", "yes"):
-            await asyncio.to_thread(position.try_switch_linear_one_way, self.http_session, s.symbol)
+            one_way_ok = await asyncio.to_thread(position.try_switch_linear_one_way, self.http_session, s.symbol)
+        else:
+            one_way_ok = False
 
         if await self.adapter.if_position_open(self.http_session, s.symbol):
             self._notify_user(
@@ -406,7 +408,7 @@ class TradeSession:
         order_result = await self.adapter.place_order(s.symbol, qty, POSITION_SIDE, self.http_session)
         if order_result and order_result.get("retCode") == 0:
             s.active_position_idx = None
-        else:
+        elif not one_way_ok:
             logger.warning(
                 "Повтор входа Market с positionIdx=%s trade_id=%s (hedge / режим позиции)",
                 leg_idx,
@@ -419,6 +421,8 @@ class TradeSession:
                 s.active_position_idx = leg_idx
             else:
                 s.active_position_idx = None
+        else:
+            s.active_position_idx = None
 
         if not order_result or order_result.get("retCode") != 0:
             logger.error("❌ Ошибка открытия позиции trade_id=%s: %s", s.trade_id, order_result)
@@ -841,7 +845,7 @@ def start_trading_nomulti(
 ) -> str:
     """
     Nomulti: один аккаунт из .env (API_KEY / DEMO_API_KEY), тот же async-движок.
-    tg_id — NOMULTI_TG_ID или ADMIN_CHAT_ID для уведомлений и history_trades.
+    tg_id — NOMULTI_TG_ID или первый ID из ADMIN_IDS для уведомлений и history_trades.
     """
     effective_demo = bool(use_demo) if use_demo is not None else USE_DEMO_FROM_ENV
     if use_demo is not None:
@@ -861,8 +865,9 @@ def start_trading_nomulti(
             "В .env не заданы API_KEY/API_SECRET (или DEMO_* при USE_DEMO=true)"
         )
 
-    tg_raw = os.getenv("NOMULTI_TG_ID") or os.getenv("ADMIN_CHAT_ID") or "0"
-    tg_id = int(tg_raw)
+    from config import resolve_nomulti_tg_id
+
+    tg_id = resolve_nomulti_tg_id()
     amount = _resolve_nomulti_sum(sum_for_trades)
     return start_trading(
         symbol=symbol,

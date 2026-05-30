@@ -11,12 +11,27 @@ EN_CONFIGURATION = {
     "prolong_subscription": "Prolong subscription",
   }, # -------------------------------------------------------------
   "subscription_text": {
-    "buy_info": f"Payment for 1 month = 99$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",
+    "buy_info": f"Payment for 1 month = 49$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",
     "question": "After payment, click the 'Paid' button and enter the payment ID. Then the administration will verify your payment within 24 hours and activate your subscription.",
     "paid": "Great! Now you only need to enter the payment ID. Click the 'Enter payment ID' button and provide the payment ID.\nThen the administration will verify your payment within 24 hours and activate your subscription.",
     "input_payment_id": "Enter the payment ID in chat",
     "confirm_payment": "Is everything correct: {payment_id}",
     "confirm_payment_success": "Thanks for your payment! The administration will verify your payment within 24 hours and activate your subscription.",
+    "subscription_reminder_3d": (
+        "Dear subscriber,\n\n"
+        "Your subscription will expire in 3 days ({end_date}).\n"
+        "Please renew in the bot so trading is not interrupted."
+    ),
+    "subscription_reminder_1d": (
+        "Dear subscriber,\n\n"
+        "Your subscription will expire in 1 day ({end_date}).\n"
+        "Please renew in the bot to keep access to the algorithm."
+    ),
+    "subscription_expired": (
+        "Dear subscriber,\n\n"
+        "Your subscription has expired ({end_date}) and has been deactivated.\n"
+        "Renew or purchase a subscription in the bot to continue."
+    ),
   },
   "subscription_btn": {
     "paid": "Paid",

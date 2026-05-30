@@ -40,26 +40,10 @@ def _subscriber_broadcast_bot_token() -> str | None:
 
 
 def _admin_target_chat_ids() -> list[int]:
-    """Уникальные chat_id для служебных уведомлений (ADMIN_CHAT_ID + ADMIN_IDS)."""
-    from config import ADMIN_CHAT_ID, ADMIN_IDS
+    """Уникальные chat_id для служебных уведомлений (ADMIN_IDS)."""
+    from config import ADMIN_IDS
 
-    out: list[int] = []
-    seen: set[int] = set()
-    if ADMIN_CHAT_ID:
-        s = str(ADMIN_CHAT_ID).strip()
-        if s:
-            try:
-                v = int(s)
-                if v not in seen:
-                    seen.add(v)
-                    out.append(v)
-            except ValueError:
-                pass
-    for aid in sorted(ADMIN_IDS):
-        if aid not in seen:
-            seen.add(aid)
-            out.append(aid)
-    return out
+    return sorted(ADMIN_IDS)
 
 
 @celery_app.task(
@@ -95,7 +79,7 @@ def send_notification_task(self, text: str):
 )
 def send_notification_to_admins_task(self, text: str):
     """
-    Служебное уведомление только админам (ADMIN_CHAT_ID и ADMIN_IDS).
+    Служебное уведомление только админам (ADMIN_IDS).
     """
     token = (TELEGRAM_BOT_TOKEN or "").strip()
     if not token:
@@ -104,7 +88,7 @@ def send_notification_to_admins_task(self, text: str):
     targets = _admin_target_chat_ids()
     if not targets:
         logger.warning(
-            "send_notification_to_admins_task: нет ADMIN_CHAT_ID и ADMIN_IDS — некуда отправить"
+            "send_notification_to_admins_task: ADMIN_IDS пуст — некуда отправить"
         )
         return {"ok": False, "sent": 0, "targets": 0}
     api_url = f"https://api.telegram.org/bot{token}/sendMessage"

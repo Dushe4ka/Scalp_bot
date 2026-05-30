@@ -21,6 +21,113 @@ celery -A celery_app.celery_config worker --loglevel=info -Q default,trade_user 
 
 * python -m bot.main
 
+# Запуск через PM2 (VPS, multiuser)
+
+Из **корня проекта** (где `myvenv/`, `server_api/`, `bot/`). Аргументы `-m` — **после `--`**:
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-api -- -m server_api.main
+pm2 start ./myvenv/bin/python --name scalp-feed -- -m services.market_price_feed
+pm2 start ./myvenv/bin/python --name scalp-bot -- -m bot.main
+```
+
+Celery (router + engine workers + **beat**) — через **screen**, см. [quickstart.md](quickstart.md) (раздел «PM2 / Screen» и «Жизненный цикл подписки»).
+
+# Жизненный цикл подписки (Subscription Lifecycle)
+
+Автоматическая проверка срока подписки для мультиюзерного бота: напоминания пользователю и отключение доступа к торговле по истечении.
+
+## Как это работает
+
+| Событие | Действие |
+|---------|----------|
+| До окончания **3 календарных дня** | Личное сообщение в Telegram (один раз на текущую дату окончания) |
+| До окончания **1 день** | Напоминание о скором истечении |
+| Дата окончания **наступила** | `subscription_data.subscription` → `false`, уведомление об отключении |
+
+Проверка запускается **периодически** (по умолчанию каждые **12 часов**) через **Celery Beat**.  
+Задача `check_subscription_lifecycle` выполняется на **router**-воркере (очередь `default`).
+
+Расчёт «сколько дней осталось» — по календарным дням в часовом поясе **Europe/Moscow** (как в `celery_app/celery_config.py`).
+
+## Кого проверяют
+
+Обрабатываются пользователи Mongo `users`, у которых одновременно:
+
+- `subscription_data.subscription: true`
+- задана `subscription_data.end_subscription_date`
+
+Пользователи без даты окончания пропускаются (логируется `skipped`).
+
+После истечения также сбрасывается `subscription_data.wait_sub_confirmation: false`.
+
+## Идempotency (без дублей)
+
+В `subscription_data` сохраняются отметки, привязанные к конкретной дате окончания:
+
+| Поле | Назначение |
+|------|------------|
+| `notify_3d_for_end` | напоминание «за 3 дня» уже отправлено для этой даты |
+| `notify_1d_for_end` | напоминание «за 1 день» |
+| `notify_expired_for_end` | уведомление об истечении |
+
+При **продлении** подписки админом меняется `end_subscription_date` — старые отметки не совпадают с новой датой, напоминания снова отправятся корректно.
+
+## Тексты уведомлений
+
+Шаблоны в локализации бота:
+
+- `bot/languages/ru.py` → `subscription_text.subscription_reminder_3d`, `subscription_reminder_1d`, `subscription_expired`
+- `bot/languages/en.py` — те же ключи для `language: en`
+
+Язык берётся из поля `users.language` (по умолчанию русский).
+
+Доставка — через существующую Celery-задачу `send_notification_to_user_task` (тот же токен, что и для торговых уведомлений: `CELERY_TRADING_BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`).
+
+## Конфигурация
+
+В `.env`:
+
+```env
+SUBSCRIPTION_LIFECYCLE_CHECK_HOURS=12
+```
+
+Расписание задаётся в `celery_app/celery_config.py` → `beat_schedule`.
+
+## Запуск
+
+**Celery Beat** — отдельный процесс, **один экземпляр** на весь кластер:
+
+```bash
+celery -A celery_app.celery_config beat -l info
+```
+
+Router-воркер должен слушать очередь `default` (как для hedge/custom и прочих задач).
+
+Ручной прогон без ожидания расписания:
+
+```bash
+celery -A celery_app.celery_config call check_subscription_lifecycle
+```
+
+Подробный деплой (screen, порядок старта): [quickstart.md](quickstart.md).
+
+## Компоненты в коде
+
+| Назначение | Путь |
+|------------|------|
+| Бизнес-логика | `celery_app/subscription_lifecycle_service.py` |
+| Celery-задача | `celery_app/tasks/subscription_lifecycle.py` |
+| Sync MongoDB (для Celery) | `database/subscription_lifecycle_repository.py` |
+| Расписание Beat | `celery_app/celery_config.py` |
+
+Sync **pymongo** в Celery-задаче — намеренно: Motor (async) в fork-воркерах не используется, тот же подход, что в `database/history_trades_repository.py`.
+
+## Связь с торговлей
+
+Эндпоинт `POST /short_3_limit` отбирает только пользователей с `subscription_data.subscription: true`.  
+После автоматического отключения по истечении срока пользователь **перестаёт попадать** в очередь торговли до нового подтверждения подписки админом.
+
 # Запуск Telegram бота (немультюзер)
 
 * `python -m bot_nomultiuser.main` (из корня репозитория; в `.env` — `TELEGRAM_BOT_TOKEN`, `LOCAL_SERVER_URL`)
@@ -51,7 +158,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 
 Немультюзерный бот (`bot_nomultiuser`) → `/nomulti_short_3_limit`, `/hedge_long_short_bu_ts`, `/nomulti_custom_algo`.
 
-Для работы нужны: API, Celery worker, **Redis** (broker + idempotency/snapshots async-движка), MongoDB (подписчики, custom-конфиг).
+Для работы нужны: API, Celery worker, **Celery Beat** (проверка подписок), **Redis** (broker + idempotency/snapshots async-движка), MongoDB (подписчики, custom-конфиг).
 
 ---
 
@@ -82,7 +189,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 **Точки входа:**
 
 - multiuser: `short_bu_ts_limit_multiuser.start_trading(...)` → `submit_trade(...)` → сразу `trade_id`;
-- nomulti: `start_trading_nomulti(symbol)` — ключи и сумма из `.env`, `tg_id` из `NOMULTI_TG_ID` / `ADMIN_CHAT_ID`.
+- nomulti: `start_trading_nomulti(symbol)` — ключи и сумма из `.env`, `tg_id` из `NOMULTI_TG_ID` или первого ID в `ADMIN_IDS`.
 
 **Компоненты:**
 
@@ -129,6 +236,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | Price feed | `python -m services.market_price_feed` |
 | Engine worker i | `CELERY_ENGINE_ID=i celery … worker -Q trade_engine_i --concurrency=1` |
 | Router | `celery … worker -Q default,trade_user` |
+| Celery Beat | `celery … beat -l info` (подписки, см. раздел выше) |
 
 - `TRADE_ENGINE_COUNT` — число engine-очередей (в `.env`, для тестов 2, для прода ~34).
 - `MAX_SESSIONS_PER_ENGINE=30` — лимит сделок на процесс.
@@ -139,7 +247,8 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 - **Redis** — broker Celery, idempotency, snapshots, price Pub/Sub, orchestrator load.
 - **Feed process** — `python -m services.market_price_feed` (отдельно от Celery).
 - **Engine workers** — по одному на `trade_engine_{i}`, `--concurrency=1`.
-- **Router worker** — `default`, `trade_user` (hedge/custom).
+- **Router worker** — `default`, `trade_user` (hedge/custom, проверка подписок).
+- **Celery Beat** — один процесс, `check_subscription_lifecycle` каждые `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` (по умолчанию 12).
 - `worker_prefetch_multiplier=1` в `celery_app/celery_config.py`.
 
 ## Остановка торговли
@@ -162,6 +271,8 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | Orchestrator | `celery_app/trade_orchestrator.py` |
 | Price feed service | `services/market_price_feed/` |
 | Celery nomulti short | `celery_app/tasks/short_3_limit_nomulti.py` |
+| Проверка подписок (Beat) | `celery_app/tasks/subscription_lifecycle.py` |
+| Sync Mongo подписок | `database/subscription_lifecycle_repository.py` |
 
 # Последние изменения (Apr 2026)
 
@@ -198,6 +309,17 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 - Это уменьшает долю сбоев вида `Timeout` при отправке сообщений в Telegram.
 
 # Последние изменения (May 2026)
+
+## Автоматический жизненный цикл подписки
+
+Добавлен сервис проверки срока подписки на **Celery Beat**:
+
+- периодический запуск (по умолчанию каждые 12 ч, `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS`);
+- напоминания за **3** и **1** календарный день до `end_subscription_date`;
+- при истечении — `subscription=false` и личное уведомление в Telegram;
+- защита от повторных сообщений через поля `notify_*_for_end` в `subscription_data`.
+
+Подробности: раздел **«Жизненный цикл подписки»** выше и [quickstart.md](quickstart.md).
 
 ## Миграция short-алгоритмов на AsyncTradeEngine
 

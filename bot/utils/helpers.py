@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 from database.subscribers import get_subscribers
 from bot.utils.misc import bot
-from config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID, TECH_SUPPORT_ID
+from config import TELEGRAM_BOT_TOKEN, ADMIN_IDS, TECH_SUPPORT_ID
 from logger_config import setup_logger
 from bybit_logic.bybit_func import account, calculator
 from bybit_logic.bybit_func.session import create_session
@@ -266,10 +266,11 @@ async def send_info_payment_to_admin(payment_id: str, user_id: int, username: st
         logger.error(f"Ошибка при отправке информации о платеже в техподдержку: {e}")
 
     try:
-        await bot.send_message(
-            chat_id=ADMIN_CHAT_ID,
-            text=text
-        )
+        for admin_id in sorted(ADMIN_IDS):
+            await bot.send_message(chat_id=admin_id, text=text)
+        if not ADMIN_IDS:
+            logger.warning("ADMIN_IDS пуст — отправка сообщения администратору пропущена")
+            admin_ok = False
     except Exception as e:
         admin_ok = False
         logger.error(f"Ошибка при отправке информации о платеже администратору: {e}")

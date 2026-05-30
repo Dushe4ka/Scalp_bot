@@ -47,6 +47,9 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
             "subscription_type": "",
             "payment_date": None,
             "end_subscription_date": None,
+            "notify_3d_for_end": None,
+            "notify_1d_for_end": None,
+            "notify_expired_for_end": None,
             "total_amount": 0,
             "previous_payment_date": None,
             "previous_subscription_type": "",
@@ -879,8 +882,8 @@ class UsersRepository:
         await self.update_wait_sub_confirmation(tg_id, True)
         await self.update_subscription_type(tg_id, "1 мес")
         await self.update_payment_date(tg_id, data_now)
-        await self.update_current_amount(tg_id, 99)
-        await self.update_total_amount(tg_id, total_amount + 99)
+        await self.update_current_amount(tg_id, 49)
+        await self.update_total_amount(tg_id, total_amount + 49)
 
         logger.info(f"Данные пользователя {tg_id} обновлены (покупка подписки 30 дней)")
 

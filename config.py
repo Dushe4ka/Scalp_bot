@@ -18,21 +18,37 @@ TRADING_MARGIN_MODE = (os.getenv("MARGIN_MODE", "CROSS") or "CROSS").strip().upp
 MONGO_URI = os.getenv("MONGO_URI") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
 MONGO_DB = os.getenv("MONGO_DB") or os.getenv("MONGODB_DB") or "scalp_bot"
 
-# Даннные для Telegram бота
-TELEGRAM_BOT_TOKEN=os.getenv("TELEGRAM_BOT_TOKEN")
-URL_TGCHANNEL=os.getenv("URL_TGCHANNEL")
-URL_PAYMENT=os.getenv("URL_PAYMENT")
-ADMIN_CHAT_ID=os.getenv("ADMIN_CHAT_ID")
-URL_TECH_SUPPORT=os.getenv("URL_TECH_SUPPORT")
-TECH_SUPPORT_ID=os.getenv("TECH_SUPPORT_ID")
+# Данные для Telegram бота
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+URL_TGCHANNEL = os.getenv("URL_TGCHANNEL")
+URL_PAYMENT = os.getenv("URL_PAYMENT")
+URL_TECH_SUPPORT = os.getenv("URL_TECH_SUPPORT")
+TECH_SUPPORT_ID = os.getenv("TECH_SUPPORT_ID")
 
-# Поддержка нескольких админов: ADMIN_IDS=1,2,3
-ADMIN_IDS_RAW = os.getenv("ADMIN_IDS", "")
-ADMIN_IDS = {
-    int(x.strip())
-    for x in ADMIN_IDS_RAW.split(",")
-    if x.strip().isdigit()
-}
+
+def _parse_admin_id_list(raw: str | None) -> set[int]:
+    """Парсит Telegram ID из строки вида '123' или '123,456,789'."""
+    out: set[int] = set()
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if part.isdigit():
+            out.add(int(part))
+    return out
+
+
+# Доступ к /admin и админ-уведомления: один или несколько ID через запятую
+ADMIN_IDS = _parse_admin_id_list(os.getenv("ADMIN_IDS"))
+
+
+def resolve_nomulti_tg_id() -> int:
+    """Telegram ID для nomulti: NOMULTI_TG_ID или первый ID из ADMIN_IDS."""
+    raw = (os.getenv("NOMULTI_TG_ID") or "").strip()
+    if raw.isdigit():
+        return int(raw)
+    if ADMIN_IDS:
+        return min(ADMIN_IDS)
+    return 0
+
 
 # Локальный URL для внутренних запросов проекта (бот -> API, админка -> API)
 LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8050")

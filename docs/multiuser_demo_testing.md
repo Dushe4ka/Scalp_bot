@@ -30,8 +30,7 @@ COUNT_LIMIT_ORDERS=3
 LIMIT_PERCENTAGE=10
 
 TELEGRAM_BOT_TOKEN=...   # бот multiuser (bot.main)
-ADMIN_CHAT_ID=...        # ваш Telegram ID
-ADMIN_IDS=...
+ADMIN_IDS=1395854084,525006772   # доступ к /admin (через запятую)
 LOCAL_SERVER_URL=http://127.0.0.1:8050
 ```
 
@@ -47,6 +46,7 @@ LOCAL_SERVER_URL=http://127.0.0.1:8050
 |------|----------|
 | `subscription_data.subscription` | `true` |
 | `subscription_data.wait_sub_confirmation` | `false` |
+| `subscription_data.end_subscription_date` | дата окончания (для авто-напоминаний и отключения, см. [README.md](../README.md)) |
 | `bybit_data.api_key` | DEMO API key аккаунта 1 / 2 |
 | `bybit_data.api_secret` | DEMO secret |
 | `bybit_data.sum_for_trades` | `10`–`20` (USDT на сделку) |
@@ -82,6 +82,9 @@ CELERY_ENGINE_ID=1 celery -A celery_app.celery_config worker \
 
 # T5 — Router
 celery -A celery_app.celery_config worker -Q default,trade_user --concurrency=4 -l info
+
+# T5b — Celery Beat (подписки; для demo-теста торговли не обязателен, для prod — да)
+celery -A celery_app.celery_config beat -l info
 
 # T6 — Бот (админка + профили)
 python -m bot.main

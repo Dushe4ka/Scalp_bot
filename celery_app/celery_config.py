@@ -1,5 +1,6 @@
 from celery import Celery
 from kombu import Queue
+from datetime import timedelta
 import os
 import sys
 from pathlib import Path
@@ -17,6 +18,8 @@ _engine_queues = tuple(
     Queue(f"trade_engine_{i}") for i in range(_engine_count)
 )
 
+_subscription_check_hours = float(os.getenv("SUBSCRIPTION_LIFECYCLE_CHECK_HOURS", "12"))
+
 celery_app.conf.update(
     imports=[
         'celery_app.tasks.short_3_limit',
@@ -25,6 +28,7 @@ celery_app.conf.update(
         'celery_app.tasks.hedge_long_short_bu_ts',
         'celery_app.tasks.custom_algo_nomulti',
         'celery_app.tasks.notifications',
+        'celery_app.tasks.subscription_lifecycle',
         'celery_app.worker_signals',
     ],
     task_serializer='json',
@@ -41,4 +45,10 @@ celery_app.conf.update(
         Queue("default"),
         Queue("trade_user"),
     ) + _engine_queues,
+    beat_schedule={
+        "check-subscription-lifecycle": {
+            "task": "check_subscription_lifecycle",
+            "schedule": timedelta(hours=_subscription_check_hours),
+        },
+    },
 )

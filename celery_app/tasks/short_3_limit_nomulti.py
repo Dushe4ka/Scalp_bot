@@ -53,8 +53,9 @@ def _nomulti_credentials() -> tuple[int, str, str, str, float]:
     else:
         api_key = (API_KEY or "").strip()
         api_secret = (API_SECRET or "").strip()
-    tg_raw = os.getenv("NOMULTI_TG_ID") or os.getenv("ADMIN_CHAT_ID") or "0"
-    tg_id = int(tg_raw)
+    from config import resolve_nomulti_tg_id
+
+    tg_id = resolve_nomulti_tg_id()
     sum_raw = os.getenv("SHORT_BU_TS_LIMIT_USDT_AMOUNT") or os.getenv("USDT_AMOUNT")
     return tg_id, api_key, api_secret, os.getenv("NOMULTI_USER_NAME", "nomulti"), float(sum_raw)
 
