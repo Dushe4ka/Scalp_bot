@@ -28,7 +28,8 @@ from bot.callback_data.admin_lists import (
     HistoryTradesPageCb,
 )
 from logger_config import setup_logger
-from bot.utils.helpers import safe_edit_message, extract_user_api_credentials, get_recommended_trade_amount
+from bot.utils.helpers import safe_edit_message, extract_user_api_credentials, get_recommended_trade_amount, notify_user_telegram
+from bot.utils.api_key_expiry import refresh_user_api_key_expiry, build_api_key_expiry_line
 from bot.utils.misc import _format_dt
 from database.users_repository import db, UsersRepositoryError, ValidationError
 from bot.languages._lang_func import get_config_lang
@@ -245,12 +246,18 @@ async def _format_profile_text_by_template(user: dict[str, Any], text_config: di
         subscription_type = user["subscription_data"]["subscription_type"]
         sum_for_trades = user["bybit_data"]["sum_for_trades"]
         api_key = '✅' if user["bybit_data"]["api_key"] else '❌'
+        api_key_expiry_line = build_api_key_expiry_line(
+            user.get("bybit_data") or {},
+            text_config["profile_text"]["profile_api_key_expiry"],
+        )
 
         return template.format(
             payment_date=payment_date, 
             subscription_type=subscription_type, 
             sum_for_trades=sum_for_trades, 
-            api_key=api_key)
+            api_key=api_key,
+            api_key_expiry_line=api_key_expiry_line,
+        )
 
     elif type_settings == "profile_statistics":
         template = text_config.get("profile_text", {}).get("profile_statistics")
@@ -276,11 +283,17 @@ async def _format_profile_text_by_template(user: dict[str, Any], text_config: di
         api_key = _format_key_secret(user["bybit_data"]["api_key"])
         api_secret = _format_key_secret(user["bybit_data"]["api_secret"])
         sum_for_trades = user["bybit_data"]["sum_for_trades"]
+        api_key_expiry_line = build_api_key_expiry_line(
+            user.get("bybit_data") or {},
+            text_config["profile_text"]["profile_api_key_expiry"],
+        )
 
         return template.format(
             api_key=api_key, 
             api_secret=api_secret, 
-            sum_for_trades=sum_for_trades)
+            sum_for_trades=sum_for_trades,
+            api_key_expiry_line=api_key_expiry_line,
+        )
 
 @router.callback_query(F.data == "profile_menu")
 async def profile_menu(callback: CallbackQuery, lang: str):
@@ -294,6 +307,8 @@ async def profile_menu(callback: CallbackQuery, lang: str):
     
     text_config = await get_config_lang(lang)
     user = await db.get_user_by_username_or_id(user_id)
+    if user and user.get("bybit_data", {}).get("api_key") and user.get("bybit_data", {}).get("api_secret"):
+        user = await refresh_user_api_key_expiry(user)
 
     if is_subscriber and not is_wait_sub_confirmation: # sub true & wait false
         reply_markup = (await profile_menu_kb(user_id, lang)).as_markup()
@@ -339,6 +354,8 @@ async def settings_profile(callback: CallbackQuery, lang: str):
     
     text_config = await get_config_lang(lang)
     user = await db.get_user_by_username_or_id(user_id)
+    if user and user.get("bybit_data", {}).get("api_key") and user.get("bybit_data", {}).get("api_secret"):
+        user = await refresh_user_api_key_expiry(user)
 
     text = await _format_profile_text_by_template(user, text_config, "profile_settings")
     await safe_edit_message(
@@ -404,6 +421,8 @@ async def process_profile_edit_api_secret(message: Message, state: FSMContext, l
         await message.answer(text_config["admin_text"]["error_user_not_found"])
         await state.clear()
         return
+
+    user = await refresh_user_api_key_expiry(user)
 
     await state.clear()
     await message.answer(

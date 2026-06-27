@@ -112,6 +112,93 @@ celery -A celery_app.celery_config call check_subscription_lifecycle
 
 Подробный деплой (screen, порядок старта): [quickstart.md](quickstart.md).
 
+# Жизненный цикл API-ключа Bybit (API Key Lifecycle)
+
+Отслеживание срока действия **пользовательского** API-ключа в мультиюзерном боте: сохранение даты истечения в Mongo, показ в личном кабинете и напоминания в Telegram.
+
+## Как это работает
+
+| Событие | Действие |
+|---------|----------|
+| Вход в **личный кабинет** или **настройки** | Запрос `GET /v5/user/query-api` (pybit: `get_api_key_information`), обновление `bybit_data.api_key_expired_at` **только если дата изменилась** |
+| Сохранение **API key/secret** в профиле | То же — сразу запрашивается и записывается срок |
+| До истечения **3 календарных дня** | Личное сообщение в Telegram (один раз на текущую дату) |
+| До истечения **1 день** | Напоминание |
+| **День истечения** | Уведомление «сегодня истекает» |
+
+Проверка напоминаний — **Celery Beat**, задача `check_api_key_lifecycle` (тот же интервал, что и подписки: `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS`).
+
+Расчёт «сколько дней осталось» — по календарным дням в **Europe/Moscow**.
+
+## Ограничение Bybit
+
+Поля `deadlineDay` и `expiredAt` возвращаются **не для всех ключей**:
+
+- ✅ ключ **без привязки IP** (`ips: ["*"]`) — срок известен (обычно 90 дней);
+- ❌ ключ **с whitelist IP** — Bybit не отдаёт реальный срок; строка в профиле не показывается, напоминания не отправляются.
+
+Тест с ключами из `.env`:
+
+```bash
+python -m bybit_logic.ready_func.ex_api_key_info
+```
+
+## Поля в Mongo (`bybit_data`)
+
+| Поле | Назначение |
+|------|------------|
+| `api_key_expired_at` | Дата/время истечения ключа (UTC) |
+| `notify_api_key_3d` | «За 3 дня» уже отправлено для этой даты |
+| `notify_api_key_1d` | «За 1 день» |
+| `notify_api_key_expired` | «В день истечения» |
+
+При смене даты истечения (новый ключ) отметки уведомлений сбрасываются.
+
+## Тексты в профиле и уведомления
+
+- Профиль / настройки: `profile_text.profile_api_key_expiry` — например: «🔑 API ключ активен ещё 63 дн. (до 18.08.2026)»
+- Напоминания: `api_key_reminder_3d`, `api_key_reminder_1d`, `api_key_expired_today` в `bot/languages/ru.py` и `en.py`
+
+## Компоненты в коде
+
+| Назначение | Путь |
+|------------|------|
+| Запрос Bybit API | `bybit_logic/bybit_func/api_key_info.py` |
+| Синхронизация при входе в профиль | `bot/utils/api_key_expiry.py` |
+| Бизнес-логика напоминаний | `celery_app/api_key_lifecycle_service.py` |
+| Celery-задача | `celery_app/tasks/api_key_lifecycle.py` |
+| Sync MongoDB | `database/api_key_lifecycle_repository.py` |
+| Обновление в users repo | `database/users_repository.py` → `sync_api_key_expired_at` |
+
+Ручной прогон:
+
+```bash
+celery -A celery_app.celery_config call check_api_key_lifecycle
+```
+
+## Рекомендуемая сумма сделки и цена подписки
+
+В `.env`:
+
+```env
+RECOMMENDED_TRADE_AMOUNT_PERCENT=1.75   # % от futures-баланса (1.75 = 1,75%)
+SUBSCRIPTION_PRICE_USD=79               # стоимость подписки на 1 месяц
+```
+
+- Рекомендация в настройках профиля: `баланс × (RECOMMENDED_TRADE_AMOUNT_PERCENT / 100)` — см. `bybit_logic/bybit_func/calculator.py`.
+- Тексты оплаты в боте и сумма в Mongo при покупке берутся из `SUBSCRIPTION_PRICE_USD`.
+
+## Уведомления об оплате (админ → пользователь)
+
+При действиях админа в разделе подтверждения оплаты пользователь получает личное сообщение:
+
+| Действие админа | Ключ локализации |
+|-----------------|------------------|
+| Подтверждение подписки | `subscription_text.payment_confirmed` |
+| Отклонение оплаты | `subscription_text.payment_rejected` |
+| Подтверждение продления | `subscription_text.prolong_confirmed` |
+| Отклонение продления | `subscription_text.prolong_rejected` |
+
 ## Компоненты в коде
 
 | Назначение | Путь |
@@ -236,7 +323,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | Price feed | `python -m services.market_price_feed` |
 | Engine worker i | `CELERY_ENGINE_ID=i celery … worker -Q trade_engine_i --concurrency=1` |
 | Router | `celery … worker -Q default,trade_user` |
-| Celery Beat | `celery … beat -l info` (подписки, см. раздел выше) |
+| Celery Beat | `celery … beat -l info` (подписки + API-ключи, см. разделы выше) |
 
 - `TRADE_ENGINE_COUNT` — число engine-очередей (в `.env`, для тестов 2, для прода ~34).
 - `MAX_SESSIONS_PER_ENGINE=30` — лимит сделок на процесс.
@@ -248,7 +335,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 - **Feed process** — `python -m services.market_price_feed` (отдельно от Celery).
 - **Engine workers** — по одному на `trade_engine_{i}`, `--concurrency=1`.
 - **Router worker** — `default`, `trade_user` (hedge/custom, проверка подписок).
-- **Celery Beat** — один процесс, `check_subscription_lifecycle` каждые `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` (по умолчанию 12).
+- **Celery Beat** — один процесс: `check_subscription_lifecycle` и `check_api_key_lifecycle` каждые `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` (по умолчанию 12).
 - `worker_prefetch_multiplier=1` в `celery_app/celery_config.py`.
 
 ## Остановка торговли
@@ -272,7 +359,9 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 | Price feed service | `services/market_price_feed/` |
 | Celery nomulti short | `celery_app/tasks/short_3_limit_nomulti.py` |
 | Проверка подписок (Beat) | `celery_app/tasks/subscription_lifecycle.py` |
+| Проверка API-ключей (Beat) | `celery_app/tasks/api_key_lifecycle.py` |
 | Sync Mongo подписок | `database/subscription_lifecycle_repository.py` |
+| Sync Mongo API-ключей | `database/api_key_lifecycle_repository.py` |
 
 # Последние изменения (Apr 2026)
 
@@ -320,6 +409,21 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 - защита от повторных сообщений через поля `notify_*_for_end` в `subscription_data`.
 
 Подробности: раздел **«Жизненный цикл подписки»** выше и [quickstart.md](quickstart.md).
+
+# Последние изменения (Jun 2026)
+
+## Срок действия API-ключа в профиле
+
+- При входе в личный кабинет / настройки — синхронизация `api_key_expired_at` с Bybit API.
+- В профиле отображается, сколько дней осталось до истечения (если Bybit отдаёт срок).
+- Celery Beat: `check_api_key_lifecycle` — напоминания за 3 / 1 / 0 дней.
+- Тест: `python -m bybit_logic.ready_func.ex_api_key_info`.
+
+## Подписка и профиль
+
+- Цена подписки: **79 USD** (`SUBSCRIPTION_PRICE_USD` в `.env`).
+- Рекомендуемая сумма сделки настраивается через `RECOMMENDED_TRADE_AMOUNT_PERCENT` (по умолчанию 1,75% от futures-баланса).
+- Админ при подтверждении/отклонении оплаты или продления отправляет пользователю уведомление в Telegram.
 
 ## Миграция short-алгоритмов на AsyncTradeEngine
 

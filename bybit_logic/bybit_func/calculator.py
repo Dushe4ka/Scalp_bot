@@ -2,6 +2,7 @@ from bybit_logic.bybit_func.market import get_tickers_by_symbol, get_qty_limits
 from pybit.unified_trading import HTTP
 import math
 from decimal import Decimal, ROUND_DOWN
+from config import RECOMMENDED_TRADE_AMOUNT_PERCENT
 
 def round_by_step(value: float, step: float) -> float:
     """
@@ -73,11 +74,6 @@ def calculate_limit_price(price: float, percentage: float, side: str = "Buy") ->
 
 def calculate_max_permitted_price(balance: float) -> float:
     """
-    Рассчитывает максимально допустимую цену для цены входа в позицию
-    Рассчитывается как 1,75% от баланса
-    Args:
-        balance: Баланс в USDT
-    Returns:
-        float: Максимально допустимая цена для цены входа в позицию
+    Рассчитывает рекомендуемую сумму сделки как процент от баланса (RECOMMENDED_TRADE_AMOUNT_PERCENT в .env).
     """
-    return balance * 0.0175
+    return balance * (RECOMMENDED_TRADE_AMOUNT_PERCENT / 100.0)

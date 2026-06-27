@@ -36,7 +36,7 @@ from bot.callback_data.admin_lists import (
     SubscribersListPageCb,
     SubscribersUserCb,
 )
-from bot.utils.helpers import safe_edit_message
+from bot.utils.helpers import safe_edit_message, notify_user_telegram
 from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
 from database.users_repository import db, UsersRepositoryError, ValidationError
@@ -45,6 +45,20 @@ from config import LOCAL_SERVER_URL
 
 router = Router()
 logger = setup_logger(__name__)
+
+
+async def _notify_user_payment_status(
+    bot,
+    user: dict[str, Any],
+    message_key: str,
+) -> None:
+    tg_id = int(user["tg_id"])
+    user_lang = user.get("language") or "ru"
+    text_config = await get_config_lang(user_lang)
+    text = text_config.get("subscription_text", {}).get(message_key)
+    if not text:
+        return
+    await notify_user_telegram(bot, tg_id, text)
 
 
 async def _wait_confirm_kb_from_list(state: FSMContext) -> bool:
@@ -480,6 +494,7 @@ async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang:
                 )
             ).as_markup(),
         )
+        await _notify_user_payment_status(callback.bot, user, "payment_confirmed")
         logger.info(f"Админ {admin_user_id} ({admin_username}) подтвердил подписку пользователю {username_id}")
 
 @router.callback_query(F.data == "admin_prolong_subscription")
@@ -534,6 +549,7 @@ async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang:
                 )
             ).as_markup(),
         )
+        await _notify_user_payment_status(callback.bot, user, "prolong_confirmed")
         logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {username_id}")
 
 @router.callback_query(F.data == "cancel_prolong_subscription")
@@ -577,6 +593,7 @@ async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext
             )
         ).as_markup(),
     )
+    await _notify_user_payment_status(callback.bot, user, "prolong_rejected")
 
     logger.info(f"Админ {user_id} ({username}) отклонил продление подписки пользователю {username_id}")
 
@@ -621,6 +638,7 @@ async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: 
             )
         ).as_markup(),
     )
+    await _notify_user_payment_status(callback.bot, user, "payment_rejected")
 
     logger.info(f"Админ {user_id} ({username}) отклонил подписку пользователю {username_id}")
 

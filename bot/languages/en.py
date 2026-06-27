@@ -1,4 +1,4 @@
-from config import URL_PAYMENT
+from config import URL_PAYMENT, SUBSCRIPTION_PRICE_USD
 
 EN_CONFIGURATION = {
   "start_text": {
@@ -11,7 +11,7 @@ EN_CONFIGURATION = {
     "prolong_subscription": "Prolong subscription",
   }, # -------------------------------------------------------------
   "subscription_text": {
-    "buy_info": f"Payment for 1 month = 49$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",
+    "buy_info": f"Payment for 1 month = {SUBSCRIPTION_PRICE_USD}$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",
     "question": "After payment, click the 'Paid' button and enter the payment ID. Then the administration will verify your payment within 24 hours and activate your subscription.",
     "paid": "Great! Now you only need to enter the payment ID. Click the 'Enter payment ID' button and provide the payment ID.\nThen the administration will verify your payment within 24 hours and activate your subscription.",
     "input_payment_id": "Enter the payment ID in chat",
@@ -32,6 +32,10 @@ EN_CONFIGURATION = {
         "Your subscription has expired ({end_date}) and has been deactivated.\n"
         "Renew or purchase a subscription in the bot to continue."
     ),
+    "payment_confirmed": "✅ Your payment has been confirmed! Your subscription is active.",
+    "payment_rejected": "❌ Payment was not confirmed. Contact support if you have questions.",
+    "prolong_confirmed": "✅ Subscription extension confirmed!",
+    "prolong_rejected": "❌ Subscription extension was rejected. Contact support if you have questions.",
   },
   "subscription_btn": {
     "paid": "Paid",
@@ -41,9 +45,10 @@ EN_CONFIGURATION = {
     "reject_payment": "No ✗",
   }, # -------------------------------------------------------------
   "profile_text": {
-    "profile_menu": "My profile 👤\nSubscription start date: {payment_date}\nSubscription type: {subscription_type}\nTrade amount: {sum_for_trades}\nAPI key provided: {api_key}",
+    "profile_menu": "My profile 👤\nSubscription start date: {payment_date}\nSubscription type: {subscription_type}\nTrade amount: {sum_for_trades}\nAPI key provided: {api_key}\n{api_key_expiry_line}",
     "profile_menu_without_subscription": "My profile 👤\n\n🚫 Subscription is not active\n💬 Click the button below and follow the instructions to activate your subscription",
     "profile_menu_wait_sub_confirmation": "My profile 👤\n\n🎉 Thank you for your payment!\n🕒 Waiting for subscription confirmation\n💬 Please wait up to 24 hours for payment confirmation",
+    "profile_settings": "⚙️ Settings \n\nAPI key: {api_key}\nAPI secret: {api_secret}\nTrade amount: {sum_for_trades}\n{api_key_expiry_line}",
     "profile_settings_sum_for_trades": "Enter a new trade amount\n\nRecommended trade amount: {recommended_usdt} USDT",
     "profile_settings_sum_for_trades_fallback": "Enter a new trade amount",
     "profile_settings_sum_for_trades_risk_warning": "⚠️ Are you sure?\n\nYou entered: {entered_sum} USDT\nRecommended amount: {recommended_usdt} USDT\n\nThis value leads to higher risks when running the algorithm.",
@@ -65,6 +70,21 @@ EN_CONFIGURATION = {
     "active_trade_stop_error": "❌ Could not stop trading for {symbol}.",
     "stop_all_trading_success": "🛑 All trading stopped.\n{message}",
     "stop_all_trading_error": "❌ Could not stop all trading.",
+    "profile_api_key_expiry": "🔑 API key active for {days_left} more day(s) (until {expiry_date})",
+    "api_key_reminder_3d": (
+        "⚠️ Attention!\n\n"
+        "Your Bybit API key will expire in 3 days ({expiry_date}).\n"
+        "Create a new key and update it in the bot settings."
+    ),
+    "api_key_reminder_1d": (
+        "⚠️ Attention!\n\n"
+        "Your Bybit API key will expire in 1 day ({expiry_date}).\n"
+        "Create a new key and update it in the bot settings."
+    ),
+    "api_key_expired_today": (
+        "❌ Your Bybit API key expires today ({expiry_date}).\n"
+        "Create a new key and update it in the bot settings, otherwise trading will stop working."
+    ),
   },
   "profile_btn": {
     "subscription_buy": "Buy subscription",

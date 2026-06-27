@@ -78,6 +78,9 @@ cp .env.example .env
 | `LOCAL_SERVER_URL` | `http://127.0.0.1:8050` для локального API |
 | `USE_DEMO` | `true` — demo Bybit, `false` — mainnet |
 | `DEMO_API_KEY`, `DEMO_API_SECRET` | Ключи demo (для тестов и nomulti) |
+| `RECOMMENDED_TRADE_AMOUNT_PERCENT` | Рекомендуемая сумма сделки: % от futures-баланса (по умолчанию `1.75`) |
+| `SUBSCRIPTION_PRICE_USD` | Цена подписки на 1 месяц в USD (по умолчанию `79`) |
+| `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` | Интервал Beat: подписки + срок API-ключей (по умолчанию `12`) |
 
 Полный список Phase 2 — в `.env.example` (`TRADE_ENGINE_COUNT`, `MAX_SESSIONS_PER_ENGINE`, feed и т.д.).
 
@@ -101,6 +104,8 @@ python -m unittest tests.test_trade_orchestrator \
 - Много пользователей в **MongoDB** (`users`): у каждого свои Bybit-ключи и сумма.
 - Сигнал `POST /short_3_limit` → отдельная сделка на **каждого** подписчика с активной подпиской и ключами.
 - Telegram: `python -m bot.main` (подписки, профиль, админка). Торговля обычно через **webhook / TradingView** на API, не из меню бота.
+- В **личном кабинете** при наличии API key/secret синхронизируется срок действия ключа с Bybit; показывается «осталось N дней» (если ключ без IP whitelist).
+- Админ при подтверждении/отклонении оплаты отправляет пользователю уведомление в Telegram.
 
 ## Дополнительные переменные `.env`
 
@@ -173,7 +178,7 @@ celery -A celery_app.celery_config beat -l info
 ```
 
 Интервал задаётся в `.env`: `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS=12`.  
-Задача `check_subscription_lifecycle` выполняется на **router**-воркере (очередь `default`). Beat должен быть **один** процесс на весь кластер.
+Задача `check_subscription_lifecycle` выполняется на **router**-воркере (очередь `default`). Там же — `check_api_key_lifecycle`. Beat должен быть **один** процесс на весь кластер.
 
 **Терминал 6 — Telegram-бот (опционально для админки)**
 
@@ -332,6 +337,8 @@ curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
 - `bybit_data.sum_for_trades` > 0
 - `bybit_data.stop_trading` не `true`
 
+Опционально в `bybit_data` хранится `api_key_expired_at` (синхронизируется при входе в профиль) — для напоминаний об истечении ключа.
+
 Иначе он будет пропущен при `/short_3_limit`.
 
 ## Жизненный цикл подписки (Celery Beat)
@@ -372,6 +379,37 @@ celery -A celery_app.celery_config call check_subscription_lifecycle
 ```
 
 Полное описание: [README.md](README.md) (раздел «Жизненный цикл подписки»).
+
+## Жизненный цикл API-ключа (Celery Beat)
+
+Параллельно с подписками Beat запускает `check_api_key_lifecycle` (тот же интервал `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS`).
+
+### Что делает сервис
+
+1. Находит пользователей с заполненными `api_key` / `api_secret` и `bybit_data.api_key_expired_at`.
+2. **За 3 дня** до истечения — напоминание создать новый ключ.
+3. **За 1 день** — второе напоминание.
+4. **В день истечения** — финальное уведомление.
+
+Дата истечения обновляется при входе в **личный кабинет** / **настройки** и при сохранении key/secret (запрос `get_api_key_information` к Bybit). Если дата не изменилась — запись в Mongo не трогается.
+
+Повторные напоминания для одной даты не отправляются (`notify_api_key_3d`, `notify_api_key_1d`, `notify_api_key_expired`).
+
+**Ограничение:** для ключей с привязкой к IP Bybit не отдаёт срок — профиль и напоминания для таких ключей не работают.
+
+Тест с ключами из `.env`:
+
+```bash
+python -m bybit_logic.ready_func.ex_api_key_info
+```
+
+Ручная проверка Celery:
+
+```bash
+celery -A celery_app.celery_config call check_api_key_lifecycle
+```
+
+Подробности: [README.md](README.md) (раздел «Жизненный цикл API-ключа Bybit»).
 
 ## Demo-тест: 2 аккаунта Bybit
 

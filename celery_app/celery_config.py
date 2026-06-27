@@ -29,6 +29,7 @@ celery_app.conf.update(
         'celery_app.tasks.custom_algo_nomulti',
         'celery_app.tasks.notifications',
         'celery_app.tasks.subscription_lifecycle',
+        'celery_app.tasks.api_key_lifecycle',
         'celery_app.worker_signals',
     ],
     task_serializer='json',
@@ -48,6 +49,10 @@ celery_app.conf.update(
     beat_schedule={
         "check-subscription-lifecycle": {
             "task": "check_subscription_lifecycle",
+            "schedule": timedelta(hours=_subscription_check_hours),
+        },
+        "check-api-key-lifecycle": {
+            "task": "check_api_key_lifecycle",
             "schedule": timedelta(hours=_subscription_check_hours),
         },
     },

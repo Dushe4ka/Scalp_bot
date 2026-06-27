@@ -10,7 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pymongo import errors as pymongo_errors
 from pymongo.results import UpdateResult
 
-from config import MONGO_URI, MONGO_DB
+from config import MONGO_URI, MONGO_DB, SUBSCRIPTION_PRICE_USD
 from logger_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -61,6 +61,10 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
             "api_secret": "",
             "create_date": None,
             "update_date": None,
+            "api_key_expired_at": None,
+            "notify_api_key_3d": None,
+            "notify_api_key_1d": None,
+            "notify_api_key_expired": None,
             "open_trades": 0,
             "stop_trading": False,
         },
@@ -659,6 +663,38 @@ class UsersRepository:
             logger.error("Ошибка при обновлении api_secret tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении api_secret: {e}") from e
 
+    async def sync_api_key_expired_at(self, tg_id: int, expired_at: datetime | None) -> None:
+        """Обновляет дату истечения API-ключа, если она изменилась; сбрасывает отметки уведомлений."""
+        user = await self.get_user(tg_id)
+        if user is None:
+            raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+
+        bybit = user.get("bybit_data") or {}
+        stored = bybit.get("api_key_expired_at")
+
+        if stored is None and expired_at is None:
+            return
+
+        if isinstance(stored, datetime) and isinstance(expired_at, datetime):
+            a = stored.replace(tzinfo=None) if stored.tzinfo else stored
+            b = expired_at.replace(tzinfo=None) if expired_at.tzinfo else expired_at
+            if abs((a - b).total_seconds()) < 120:
+                return
+
+        set_fields: dict[str, Any] = {
+            "bybit_data.api_key_expired_at": expired_at,
+            "bybit_data.notify_api_key_3d": None,
+            "bybit_data.notify_api_key_1d": None,
+            "bybit_data.notify_api_key_expired": None,
+        }
+        logger.info("Обновление api_key_expired_at для tg_id=%s -> %s", tg_id, expired_at)
+        try:
+            r = await self._collection.update_one({"tg_id": tg_id}, {"$set": set_fields})
+            self._ensure_user_exists(r, tg_id)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка sync_api_key_expired_at tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при обновлении api_key_expired_at: {e}") from e
+
     async def update_bybit_create_date(self, tg_id: int, create_date: datetime | None) -> None:
         if create_date is not None and not isinstance(create_date, datetime):
             logger.warning("update_bybit_create_date: невалидное значение для tg_id=%s", tg_id)
@@ -882,8 +918,8 @@ class UsersRepository:
         await self.update_wait_sub_confirmation(tg_id, True)
         await self.update_subscription_type(tg_id, "1 мес")
         await self.update_payment_date(tg_id, data_now)
-        await self.update_current_amount(tg_id, 49)
-        await self.update_total_amount(tg_id, total_amount + 49)
+        await self.update_current_amount(tg_id, SUBSCRIPTION_PRICE_USD)
+        await self.update_total_amount(tg_id, total_amount + SUBSCRIPTION_PRICE_USD)
 
         logger.info(f"Данные пользователя {tg_id} обновлены (покупка подписки 30 дней)")
 

@@ -55,3 +55,9 @@ LOCAL_SERVER_URL = os.getenv("LOCAL_SERVER_URL", "http://127.0.0.1:8050")
 
 # Публичный URL (для уведомлений/показа внешних эндпоинтов)
 SERVER_URL = os.getenv("SERVER_URL", LOCAL_SERVER_URL)
+
+# Рекомендуемая сумма сделки: процент от futures-баланса (1.75 = 1,75%)
+RECOMMENDED_TRADE_AMOUNT_PERCENT = float(os.getenv("RECOMMENDED_TRADE_AMOUNT_PERCENT", "1.75"))
+
+# Стоимость подписки на 1 месяц (USD)
+SUBSCRIPTION_PRICE_USD = int(os.getenv("SUBSCRIPTION_PRICE_USD", "79"))

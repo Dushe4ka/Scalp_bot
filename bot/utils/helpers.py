@@ -298,3 +298,13 @@ async def get_recommended_trade_amount(user: dict[str, Any]) -> float | None:
     except Exception as e:
         logger.warning("Не удалось рассчитать рекомендованную сумму сделки: %s", e)
         return None
+
+
+async def notify_user_telegram(bot, tg_id: int, text: str) -> bool:
+    """Отправляет личное уведомление пользователю в Telegram."""
+    try:
+        await bot.send_message(chat_id=int(tg_id), text=text)
+        return True
+    except Exception as e:
+        logger.error("Не удалось отправить уведомление tg_id=%s: %s", tg_id, e)
+        return False

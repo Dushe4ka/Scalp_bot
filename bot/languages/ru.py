@@ -1,4 +1,4 @@
-from config import URL_PAYMENT
+from config import URL_PAYMENT, SUBSCRIPTION_PRICE_USD
 
 RU_CONFIGURATION = {
   "start_text": {
@@ -11,7 +11,7 @@ RU_CONFIGURATION = {
     "prolong_subscription": "Продлить подписку",
   }, # -------------------------------------------------------------
   "subscription_text": {
-    "buy_info": f"Оплата 1 месяц = 49$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
+    "buy_info": f"Оплата 1 месяц = {SUBSCRIPTION_PRICE_USD}$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
     "question": "После оплаты нажмите на кнопку «Оплатил». и введите ID платежа. Далее администрация в течении 24ч проверит ваш платеж и активирует вашу подписку.",
     "prolong_question": "После оплаты нажмите на кнопку «Оплатил». и введите ID платежа. Далее администрация в течении 24ч проверит ваш платеж и продлит вашу подписку.",
     "paid": "Отлично! Осталось ввести ID платежа. Для этого нажмите на кнопку «Ввести ID платежа» и введите ID платежа.\nДалее администрация в течении 24ч проверит ваш платеж и активирует вашу подписку.",
@@ -20,7 +20,11 @@ RU_CONFIGURATION = {
     "confirm_payment": "Все верно: {payment_id}",
     "confirm_payment_success": "Спасибо за оплату! Администрация в течении 24ч проверит ваш платеж и активирует вашу подписку.",
     "prolong_confirm_payment_success": "Спасибо за оплату! Администрация в течении 24ч проверит ваш платеж и продлит вашу подписку.",
-    "prolong_subscription": f"Продление подписки🚀\n\nОплата 1 месяц = 49$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
+    "prolong_subscription": f"Продление подписки🚀\n\nОплата 1 месяц = {SUBSCRIPTION_PRICE_USD}$\nURL кошелька - {URL_PAYMENT}\nТип оплаты TRC-20\n P.S. Оплата принимается только с аккаунтов бирж.\nПосле оплаты нажмите на кнопку «Оплатил». и введите ID платежа.",
+    "payment_confirmed": "✅ Ваша оплата подтверждена! Подписка активирована.",
+    "payment_rejected": "❌ Оплата не подтверждена. Если у вас есть вопросы — обратитесь в техподдержку.",
+    "prolong_confirmed": "✅ Продление подписки подтверждено!",
+    "prolong_rejected": "❌ Продление подписки отклонено. Если у вас есть вопросы — обратитесь в техподдержку.",
     "subscription_reminder_3d": (
         "Уважаемый подписчик нашего сервиса!\n\n"
         "Через 3 дня ({end_date}) закончится ваша подписка.\n"
@@ -45,11 +49,11 @@ RU_CONFIGURATION = {
     "reject_payment": "Нет ✗",
   }, # -------------------------------------------------------------
   "profile_text": {
-    "profile_menu": "Мой профиль 👤\nДата оформления подписки: {payment_date}\nТип подписки: {subscription_type}\nЦена сделки: {sum_for_trades}\nAPI ключ указан: {api_key}",
+    "profile_menu": "Мой профиль 👤\nДата оформления подписки: {payment_date}\nТип подписки: {subscription_type}\nЦена сделки: {sum_for_trades}\nAPI ключ указан: {api_key}\n{api_key_expiry_line}",
     "profile_menu_without_subscription": "Мой профиль 👤\n\n🚫 Подписка не оформленa\n💬 Нажмите на кнопку ниже и следуйте инструкции чтобы оформить подписку",
     "profile_menu_wait_sub_confirmation": "Мой профиль 👤\n\n🎉 Спасибо за оплату! \n🕒 Ожидание подтверждения подписки\n💬 Пожалуйста, подождите 24 часа для подтверждения вашего платежа",
     "profile_statistics": "📊 Статистика \n\nОбщее количество сделок: {total_trades}\nОбщий PnL: {total_pnl}\nКоличество + сделок: {positive_trades}\nЗаработанная суммка с + сделок: {sum_positive_trades}\n Количество - сделок: {negative_trades}\nПроигранная сумма с - сделок: {sum_negative_trades}",
-    "profile_settings": "⚙️ Настройки \n\nAPI ключ: {api_key}\nAPI секрет: {api_secret}\nСумма для открытия сделки: {sum_for_trades}",
+    "profile_settings": "⚙️ Настройки \n\nAPI ключ: {api_key}\nAPI секрет: {api_secret}\nСумма для открытия сделки: {sum_for_trades}\n{api_key_expiry_line}",
     "profile_settings_api_key": "Введите новый API ключ",
     "profile_settings_api_secret": "Введите новый API секрет",
     "profile_settings_sum_for_trades": "Введите новую сумму сделки\n\nРекомендуемая сумма сделки: {recommended_usdt} USDT",
@@ -73,6 +77,21 @@ RU_CONFIGURATION = {
     "active_trade_stop_error": "❌ Не удалось остановить торговлю по {symbol}.",
     "stop_all_trading_success": "🛑 Вся торговля остановлена.\n{message}",
     "stop_all_trading_error": "❌ Не удалось остановить всю торговлю.",
+    "profile_api_key_expiry": "🔑 API ключ активен ещё {days_left} дн. (до {expiry_date})",
+    "api_key_reminder_3d": (
+        "⚠️ Внимание!\n\n"
+        "Через 3 дня ({expiry_date}) истечёт срок действия вашего API-ключа Bybit.\n"
+        "Создайте новый ключ и обновите его в настройках бота."
+    ),
+    "api_key_reminder_1d": (
+        "⚠️ Внимание!\n\n"
+        "Через 1 день ({expiry_date}) истечёт срок действия вашего API-ключа Bybit.\n"
+        "Создайте новый ключ и обновите его в настройках бота."
+    ),
+    "api_key_expired_today": (
+        "❌ Сегодня ({expiry_date}) истекает срок действия вашего API-ключа Bybit.\n"
+        "Создайте новый ключ и обновите его в настройках бота, иначе торговля перестанет работать."
+    ),
   },
   "profile_btn": {
     "subscription_buy": "Приобрести подписку",
