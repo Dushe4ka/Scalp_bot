@@ -36,7 +36,10 @@ async def short_3_limit_endpoint(request: Request):
         skipped_no_keys = 0
         skipped_stop_trading = 0
         skipped_invalid_sum = 0
+        skipped_max_concurrent = 0
         trade_jobs: list[dict] = []
+
+        from database.history_trades_repository import history_trades_db
 
         # 1) Сначала только проверка Mongo — кто реально может торговать
         for user in users:
@@ -45,6 +48,7 @@ async def short_3_limit_endpoint(request: Request):
             api_secret = (bybit_data.get("api_secret") or "").strip()
             stop_trading_flag = bybit_data.get("stop_trading") is True
             sum_for_trades_raw = bybit_data.get("sum_for_trades")
+            tg_id = int(user["tg_id"])
 
             if not api_key or not api_secret:
                 skipped_no_keys += 1
@@ -62,10 +66,26 @@ async def short_3_limit_endpoint(request: Request):
                 skipped_invalid_sum += 1
                 continue
 
+            try:
+                max_trades = int(bybit_data.get("max_concurrent_trades") or 1)
+            except (TypeError, ValueError):
+                max_trades = 1
+            max_trades = max(1, max_trades)
+            active_count = history_trades_db.count_active_trades(tg_id)
+            if active_count >= max_trades:
+                skipped_max_concurrent += 1
+                logger.info(
+                    "Пропуск tg_id=%s: активных сделок %s >= лимита %s",
+                    tg_id,
+                    active_count,
+                    max_trades,
+                )
+                continue
+
             trade_jobs.append(
                 {
                     "symbol": symbol,
-                    "tg_id": int(user["tg_id"]),
+                    "tg_id": tg_id,
                     "name": user.get("name", ""),
                     "api_key": api_key,
                     "api_secret": api_secret,
@@ -93,12 +113,13 @@ async def short_3_limit_endpoint(request: Request):
                 task_ids.append(task.id)
 
         logger.info(
-            "🚀 short_3_limit enqueued for symbol=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s",
+            "🚀 short_3_limit enqueued for symbol=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s skipped_max_concurrent=%s",
             symbol,
             queued,
             skipped_no_keys,
             skipped_stop_trading,
             skipped_invalid_sum,
+            skipped_max_concurrent,
         )
         return {
             "symbol": symbol,

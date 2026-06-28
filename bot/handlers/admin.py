@@ -33,6 +33,7 @@ from bot.callback_data.admin_lists import (
     ADMIN_LIST_PAGE_SIZE,
     WaitConfirmListPageCb,
     WaitConfirmUserCb,
+    AdminOpenUserCb,
     SubscribersListPageCb,
     SubscribersUserCb,
 )
@@ -40,6 +41,7 @@ from bot.utils.helpers import safe_edit_message, notify_user_telegram
 from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
 from database.users_repository import db, UsersRepositoryError, ValidationError
+from database.app_settings_repository import app_settings_db, AppSettingsRepositoryError
 from config import LOCAL_SERVER_URL
 
 
@@ -69,6 +71,43 @@ async def _subscribers_kb_from_list(state: FSMContext) -> bool:
     return bool((await state.get_data()).get("subscribers_from_list"))
 
 
+async def _subscribers_trade_amount_limit_status(tg_id: int, text_config: dict[str, Any]) -> str:
+    is_unlimited = await app_settings_db.is_unlimited_trade_amount(int(tg_id))
+    key = "trade_amount_limit_unlimited" if is_unlimited else "trade_amount_limit_standard"
+    return text_config["admin_text"][key]
+
+
+async def _render_subscriber_card(
+    target,
+    user_info: dict[str, Any],
+    state: FSMContext,
+    lang: str,
+    *,
+    from_subscribers_list: bool,
+    edit: bool = True,
+) -> None:
+    text_config = await get_config_lang(lang)
+    tg_id = int(user_info["tg_id"])
+    limit_status = await _subscribers_trade_amount_limit_status(tg_id, text_config)
+    text = _format_admin_subscribers_text_by_template(
+        _user_doc_for_template(user_info),
+        text_config,
+        "main",
+        trade_amount_limit_status=limit_status,
+    )
+    kb = (
+        await positive_proccess_search_subscribers_kb(
+            lang,
+            from_subscribers_list=from_subscribers_list,
+            target_tg_id=tg_id,
+        )
+    ).as_markup()
+    if edit:
+        await safe_edit_message(target, text, reply_markup=kb)
+    else:
+        await target.answer(text, reply_markup=kb)
+
+
 def _user_doc_for_template(doc: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in doc.items() if k != "_id"}
 
@@ -90,13 +129,20 @@ def _format_admin_user_text_by_template(user: dict[str, Any], text_config: dict[
         end_subscription_date=_format_dt(subscription_data.get("end_subscription_date")),
     )
 
-def _format_admin_subscribers_text_by_template(user: dict[str, Any], text_config: dict[str, Any], type_settings: str) -> str:
+def _format_admin_subscribers_text_by_template(
+    user: dict[str, Any],
+    text_config: dict[str, Any],
+    type_settings: str,
+    *,
+    trade_amount_limit_status: str | None = None,
+) -> str:
     if type_settings == "main":
         template = text_config.get("admin_text", {}).get("subscribers_main_info")
         return template.format(
             name=user.get("name", "—"),
             tg_id=user.get("tg_id", "—"),
             language=user.get("language", "—"),
+            trade_amount_limit_status=trade_amount_limit_status or "—",
         )
     elif type_settings == "subscription_settings":
         template = text_config.get("admin_text", {}).get("subscription_settings")
@@ -326,6 +372,55 @@ async def wait_confirm_list_open(callback: CallbackQuery, state: FSMContext, lan
 @router.callback_query(WaitConfirmListPageCb.filter())
 async def wait_confirm_list_page(callback: CallbackQuery, callback_data: WaitConfirmListPageCb, state: FSMContext, lang: str):
     await _render_wait_confirm_list(callback, state, lang, callback_data.page)
+
+
+async def _render_admin_user_card(
+    callback: CallbackQuery,
+    user_info: dict[str, Any],
+    state: FSMContext,
+    lang: str,
+) -> None:
+    text_config = await get_config_lang(lang)
+    subscription_data = user_info.get("subscription_data") or {}
+    wait_confirm = subscription_data.get("wait_sub_confirmation")
+    is_subscriber = subscription_data.get("subscription")
+    tg_id = user_info.get("tg_id")
+
+    await state.update_data(tg_id=tg_id, wait_confirm_from_list=False)
+    text = _format_admin_user_text_by_template(_user_doc_for_template(user_info), text_config)
+
+    if wait_confirm and not is_subscriber:
+        kb = await positive_proccess_search_wait_confirm_user_kb(
+            lang,
+            from_wait_list=await _wait_confirm_kb_from_list(state),
+        )
+    elif wait_confirm and is_subscriber:
+        kb = await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+            lang,
+            from_wait_list=await _wait_confirm_kb_from_list(state),
+        )
+    else:
+        text = f"{text}\n\nℹ️ Пользователь ещё не подтвердил оплату в боте (не нажал «Да ✓»)."
+        kb = await search_wait_confirm_user_kb(callback.from_user.id, lang)
+
+    await safe_edit_message(callback, text, reply_markup=kb.as_markup())
+
+
+@router.callback_query(AdminOpenUserCb.filter())
+async def admin_open_user_from_payment(
+    callback: CallbackQuery,
+    callback_data: AdminOpenUserCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Открыть карточку пользователя из уведомления об оплате."""
+    text_config = await get_config_lang(lang)
+    user_info = await db.get_user(int(callback_data.tg_id))
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+    await callback.answer()
+    await _render_admin_user_card(callback, user_info, state, lang)
 
 
 @router.callback_query(WaitConfirmUserCb.filter())
@@ -727,16 +822,12 @@ async def subscribers_list_pick_user(
 
     await state.update_data(username_id=tg_id, subscribers_from_list=True)
     await callback.answer()
-    user_clean = _user_doc_for_template(user_info)
-    await safe_edit_message(
+    await _render_subscriber_card(
         callback,
-        _format_admin_subscribers_text_by_template(user_clean, text_config, "main"),
-        reply_markup=(
-            await positive_proccess_search_subscribers_kb(
-                lang,
-                from_subscribers_list=True,
-            )
-        ).as_markup(),
+        user_info,
+        state,
+        lang,
+        from_subscribers_list=True,
     )
 
 
@@ -785,14 +876,13 @@ async def process_search_subscribers_by_username_id(message: Message, state: FSM
     is_subscriber = subscription_data.get("subscription")
 
     if is_subscriber:
-        await message.answer(
-            _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "main"),
-            reply_markup=(
-                await positive_proccess_search_subscribers_kb(
-                    lang,
-                    from_subscribers_list=await _subscribers_kb_from_list(state),
-                )
-            ).as_markup(),
+        await _render_subscriber_card(
+            message,
+            user_info_by_username_id,
+            state,
+            lang,
+            from_subscribers_list=await _subscribers_kb_from_list(state),
+            edit=False,
         )
     else:
         user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
@@ -824,15 +914,13 @@ async def subscribers_settings_main(callback: CallbackQuery, state: FSMContext, 
     is_subscriber = subscription_data.get("subscription")
 
     if is_subscriber:
-        await safe_edit_message(
+        await callback.answer()
+        await _render_subscriber_card(
             callback,
-            _format_admin_subscribers_text_by_template(user_info_by_username_id, text_config, "main"),
-            reply_markup=(
-                await positive_proccess_search_subscribers_kb(
-                    lang,
-                    from_subscribers_list=await _subscribers_kb_from_list(state),
-                )
-            ).as_markup(),
+            user_info_by_username_id,
+            state,
+            lang,
+            from_subscribers_list=await _subscribers_kb_from_list(state),
         )
     else:
         user_not_subscriber = text_config["admin_text"]["user_not_subscriber"]
@@ -843,6 +931,44 @@ async def subscribers_settings_main(callback: CallbackQuery, state: FSMContext, 
         )
         logger.info(f"Админ {admin_user_id} ({admin_username}) не нашел подписчика {tg_id}")
         return
+
+
+@router.callback_query(F.data == "admin_toggle_unlimited_trade_amount")
+async def admin_toggle_unlimited_trade_amount(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Включить/выключить расширенный режим суммы сделки для подписчика."""
+    text_config = await get_config_lang(lang)
+    data = await state.get_data()
+    tg_id = data.get("username_id")
+    if tg_id is None:
+        await callback.answer(text_config["admin_text"]["error_search_user"], show_alert=True)
+        return
+
+    user_info = await db.get_user(int(tg_id))
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    try:
+        is_unlimited = await app_settings_db.is_unlimited_trade_amount(int(tg_id))
+        if is_unlimited:
+            await app_settings_db.remove_unlimited_trade_amount(int(tg_id))
+            notice = text_config["admin_text"]["toggle_unlimited_trade_removed"]
+        else:
+            await app_settings_db.add_unlimited_trade_amount(int(tg_id))
+            notice = text_config["admin_text"]["toggle_unlimited_trade_added"]
+    except AppSettingsRepositoryError as e:
+        await callback.answer(str(e), show_alert=True)
+        return
+
+    await callback.answer(notice, show_alert=True)
+    await _render_subscriber_card(
+        callback,
+        user_info,
+        state,
+        lang,
+        from_subscribers_list=await _subscribers_kb_from_list(state),
+    )
+
 
 @router.callback_query(F.data == "subscription_settings")
 async def subscription_settings(callback: CallbackQuery, state: FSMContext, lang: str):

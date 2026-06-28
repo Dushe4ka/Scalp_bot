@@ -40,6 +40,7 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
         "name": name,
         "tg_id": tg_id,
         "language": language,
+        "language_selected": False,
         "subscription_data": {
             "subscription": False,
             "wait_sub_confirmation": False,
@@ -65,6 +66,8 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
             "notify_api_key_3d": None,
             "notify_api_key_1d": None,
             "notify_api_key_expired": None,
+            "max_concurrent_trades": 1,
+            "api_key_instruction_shown": False,
             "open_trades": 0,
             "stop_trading": False,
         },
@@ -294,7 +297,7 @@ class UsersRepository:
         try:
             r = await self._collection.update_one(
                 {"tg_id": tg_id},
-                {"$set": {"language": language}},
+                {"$set": {"language": language, "language_selected": True}},
             )
             self._ensure_user_exists(r, tg_id)
             logger.info("language обновлён для tg_id=%s", tg_id)
@@ -695,6 +698,44 @@ class UsersRepository:
             logger.error("Ошибка sync_api_key_expired_at tg_id=%s: %s", tg_id, e, exc_info=True)
             raise UsersRepositoryError(f"Ошибка при обновлении api_key_expired_at: {e}") from e
 
+    async def mark_api_key_instruction_shown(self, tg_id: int) -> None:
+        logger.info("Отметка api_key_instruction_shown для tg_id=%s", tg_id)
+        try:
+            r = await self._collection.update_one(
+                {"tg_id": tg_id},
+                {"$set": {"bybit_data.api_key_instruction_shown": True}},
+            )
+            self._ensure_user_exists(r, tg_id)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка mark_api_key_instruction_shown tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка mark_api_key_instruction_shown: {e}") from e
+
+    async def get_max_concurrent_trades(self, tg_id: int) -> int:
+        user = await self.get_user(tg_id)
+        if user is None:
+            return 1
+        bybit = user.get("bybit_data") or {}
+        try:
+            value = int(bybit.get("max_concurrent_trades") or 1)
+        except (TypeError, ValueError):
+            value = 1
+        return max(1, value)
+
+    async def migrate_max_concurrent_trades_default(self) -> dict[str, int]:
+        """Проставляет max_concurrent_trades=1 пользователям без поля."""
+        try:
+            result = await self._collection.update_many(
+                {"bybit_data.max_concurrent_trades": {"$exists": False}},
+                {"$set": {"bybit_data.max_concurrent_trades": 1}},
+            )
+            return {
+                "matched": int(result.matched_count),
+                "modified": int(result.modified_count),
+            }
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка migrate_max_concurrent_trades_default: %s", e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка миграции max_concurrent_trades: {e}") from e
+
     async def update_bybit_create_date(self, tg_id: int, create_date: datetime | None) -> None:
         if create_date is not None and not isinstance(create_date, datetime):
             logger.warning("update_bybit_create_date: невалидное значение для tg_id=%s", tg_id)
@@ -859,6 +900,7 @@ class UsersRepository:
                     "bybit_data.api_secret": 1,
                     "bybit_data.stop_trading": 1,
                     "bybit_data.sum_for_trades": 1,
+                    "bybit_data.max_concurrent_trades": 1,
                 },
             ).sort("tg_id", 1)
             return await cursor.to_list(length=None)

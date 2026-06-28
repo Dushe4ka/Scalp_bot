@@ -56,9 +56,31 @@ RU_CONFIGURATION = {
     "profile_settings": "⚙️ Настройки \n\nAPI ключ: {api_key}\nAPI секрет: {api_secret}\nСумма для открытия сделки: {sum_for_trades}\n{api_key_expiry_line}",
     "profile_settings_api_key": "Введите новый API ключ",
     "profile_settings_api_secret": "Введите новый API секрет",
-    "profile_settings_sum_for_trades": "Введите новую сумму сделки\n\nРекомендуемая сумма сделки: {recommended_usdt} USDT",
-    "profile_settings_sum_for_trades_fallback": "Введите новую сумму сделки",
-    "profile_settings_sum_for_trades_risk_warning": "⚠️ Вы уверены?\n\nВы ввели: {entered_sum} USDT\nРекомендуемая сумма: {recommended_usdt} USDT\n\nВыставленное значение ведет к повышенным рискам при работе алгоритма.",
+    "api_key_instruction_caption": "📹 Инструкция: как создать API ключ на Bybit.\n\nПосле просмотра нажмите «Ввести API ключ».",
+    "profile_settings_sum_for_trades": "Введите сумму сделки\n\nРекомендуемая сумма: {recommended_usdt} USDT",
+    "profile_settings_sum_for_trades_limited": (
+        "Введите сумму сделки\n\n"
+        "Сумма не выше: {max_usdt} USDT\n"
+        "({percent}% от баланса futures-счёта)\n\n"
+        "Это правило сервиса помогает защитить ваш депозит: при усреднениях и стопах алгоритм использует несколько ордеров, "
+        "и завышенная сумма сделки резко увеличивает риск просадки."
+    ),
+    "profile_settings_sum_for_trades_api_required": (
+        "Чтобы рассчитать допустимую сумму сделки, сначала укажите API ключ и secret в настройках профиля.\n\n"
+        "После сохранения ключей вернитесь сюда — мы покажем максимальную сумму по правилам сервиса."
+    ),
+    "profile_settings_sum_for_trades_balance_zero": (
+        "Не удалось рассчитать лимит: на futures-счёте нулевой баланс или ключ не даёт доступ к балансу.\n\n"
+        "Пополните счёт на Bybit и проверьте права API-ключа, затем повторите."
+    ),
+    "profile_settings_sum_for_trades_fallback": "Введите сумму сделки",
+    "profile_settings_sum_for_trades_exceeds_limit": (
+        "Сумма {entered_sum} USDT превышает допустимый предел.\n\n"
+        "По правилам проекта максимальная сумма сделки — {max_usdt} USDT ({percent}% от вашего баланса). "
+        "Это ограничение действует для безопасности ваших сделок: оно снижает нагрузку на депозит при серии усреднений.\n\n"
+        "Пожалуйста, введите сумму не выше {max_usdt} USDT."
+    ),
+    "profile_settings_sum_for_trades_risk_warning": "⚠️ Вы уверены?\n\nВы ввели: {entered_sum} USDT\nРекомендуемая сумма: {recommended_usdt} USDT\n\nВыставленное значение ведёт к повышенным рискам при работе алгоритма.",
     "profile_balance": "💰 Баланс futures аккаунта: {balance} USDT",
     "profile_balance_api_missing": "❌ Не удалось получить баланс: в настройках профиля не указаны API key/secret.",
     "profile_balance_error": "❌ Не удалось получить баланс. Попробуйте позже.",
@@ -99,6 +121,7 @@ RU_CONFIGURATION = {
     "statistics": "📊 Статистика", # ----
     "settings_profile": "⚙️ Настройки", # ---
     "edit_api_key_secret": "🔑 API Key / Secret",
+    "api_key_instruction_enter": "🔑 Ввести API ключ",
     "edit_sum_for_trades": "💵 Сумма сделки",
     "trading": "📈 Торговля", # ----
     "active_trades": "🟢 Активные сделки",
@@ -137,7 +160,7 @@ RU_CONFIGURATION = {
     "subscribers_list_empty": "Подписчиков нет.",
     "user_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}",
     "subscribers": "Подписчики👥\n\nВыберите метод поиска подписчиков",
-    "subscribers_main_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}",
+    "subscribers_main_info": "Имя: {name}\nТГ ID: {tg_id}\nЯзык: {language}\nЛимит суммы сделки: {trade_amount_limit_status}",
     "subscription_settings": "⚙️ Настройки подписки:\n\nСостояние подписки: {subscription_status}\nТекущая стоимость подписки: {current_amount}\nВсего выплачено за подписки: {total_amount}\nТип подписки: {subscription_type}\nДата оплаты: {payment_date}\nДата окончания: {end_subscription_date}",
     "edit_date_end_subs": "Введите дату в формате 'yyyy.mm.dd. hh.mm.ss'",
     "edit_date_end_subs_invalid_format": "Неверный формат даты. Используйте: yyyy.mm.dd. hh.mm.ss",
@@ -152,6 +175,10 @@ RU_CONFIGURATION = {
     "statistics_info": "📊 Статистика подписчика: \n\nОбщее количество сделок: {total_trades}\nОбщий PnL: {total_pnl}\nКоличество + сделок: {positive_trades}\nЗаработанная суммка с + сделок: {sum_positive_trades}\n Количество - сделок: {negative_trades}\nПроигранная сумма с - сделок: {sum_negative_trades}",
     "error_search_user": "Сначала найдите пользователя. 🚫",
     "error_user_not_found": "Пользователь не найден в БД. 🚫",
+    "trade_amount_limit_unlimited": "отключён (расширенный режим)",
+    "trade_amount_limit_standard": "стандартный (по правилам сервиса)",
+    "toggle_unlimited_trade_added": "Пользователю разрешена установка суммы выше лимита",
+    "toggle_unlimited_trade_removed": "Для пользователя снова действует лимит суммы сделки",
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Пользователи 👥",
@@ -186,6 +213,8 @@ RU_CONFIGURATION = {
     "list_prev_page": "◀️ Пред.",
     "list_next_page": "След. ▶️",
     "back_to_user_list": "К списку",
+    "toggle_unlimited_trade_add": "🔓 Разрешить сумму без лимита",
+    "toggle_unlimited_trade_remove": "🔒 Вернуть лимит суммы",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Назад",

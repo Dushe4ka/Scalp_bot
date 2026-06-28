@@ -100,6 +100,13 @@ class HistoryTradesRepository:
             logger.error("Ошибка list_user_trades: %s", e, exc_info=True)
             raise
 
+    def count_active_trades(self, tg_id: int) -> int:
+        try:
+            return int(self._history.count_documents({"tg_id": int(tg_id), "state": "active"}))
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка count_active_trades: %s", e, exc_info=True)
+            raise
+
     def count_user_trades(self, tg_id: int) -> int:
         try:
             return int(self._history.count_documents({"tg_id": int(tg_id)}))

@@ -78,8 +78,11 @@ cp .env.example .env
 | `LOCAL_SERVER_URL` | `http://127.0.0.1:8050` для локального API |
 | `USE_DEMO` | `true` — demo Bybit, `false` — mainnet |
 | `DEMO_API_KEY`, `DEMO_API_SECRET` | Ключи demo (для тестов и nomulti) |
-| `RECOMMENDED_TRADE_AMOUNT_PERCENT` | Рекомендуемая сумма сделки: % от futures-баланса (по умолчанию `1.75`) |
+| `RECOMMENDED_TRADE_AMOUNT_PERCENT` | Лимит суммы сделки для обычных пользователей: % от futures-баланса (по умолчанию `1.75`) |
 | `SUBSCRIPTION_PRICE_USD` | Цена подписки на 1 месяц в USD (по умолчанию `79`) |
+| `BREAKEVEN_AFTER_AVERAGING_COUNT` | После N усреднений меняется порог безубытка (по умолчанию `4`) |
+| `TRIGGER_PERCENTAGE_AFTER_AVERAGING` | БУ после N-го усреднения, % (по умолчанию `1.0`) |
+| `ADMIN_IDS` | Админы бота; при старте автоматически попадают в whitelist лимита суммы сделки |
 | `SUBSCRIPTION_LIFECYCLE_CHECK_HOURS` | Интервал Beat: подписки + срок API-ключей (по умолчанию `12`) |
 
 Полный список Phase 2 — в `.env.example` (`TRADE_ENGINE_COUNT`, `MAX_SESSIONS_PER_ENGINE`, feed и т.д.).
@@ -106,6 +109,24 @@ python -m unittest tests.test_trade_orchestrator \
 - Telegram: `python -m bot.main` (подписки, профиль, админка). Торговля обычно через **webhook / TradingView** на API, не из меню бота.
 - В **личном кабинете** при наличии API key/secret синхронизируется срок действия ключа с Bybit; показывается «осталось N дней» (если ключ без IP whitelist).
 - Админ при подтверждении/отклонении оплаты отправляет пользователю уведомление в Telegram.
+- **Лимит суммы сделки:** обычным пользователям нельзя выставить сумму выше `RECOMMENDED_TRADE_AMOUNT_PERCENT` от баланса; админы и пользователи из whitelist (`app_settings`) — расширенный режим.
+
+## Лимит суммы сделки
+
+1. Пользователь указывает API key/secret в профиле.
+2. В настройках «Сумма сделки» бот показывает лимит: `баланс × (RECOMMENDED_TRADE_AMOUNT_PERCENT / 100)`.
+3. Ввод выше лимита отклоняется (для whitelist — только предупреждение о риске).
+
+**Whitelist в MongoDB** (`app_settings`):
+
+```json
+{ "_id": "trade_amount_unlimited_tg_ids", "tg_ids": [123456789, ...] }
+```
+
+- При старте `python -m bot.main` все ID из `ADMIN_IDS` добавляются в `tg_ids` без дубликатов.
+- Админка → Подписчики → карточка пользователя → «Разрешить сумму без лимита» / «Вернуть лимит суммы».
+
+Код: `database/app_settings_repository.py`, `bot/utils/trade_amount.py`.
 
 ## Дополнительные переменные `.env`
 
@@ -336,8 +357,15 @@ curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
 - `bybit_data.api_key`, `bybit_data.api_secret`
 - `bybit_data.sum_for_trades` > 0
 - `bybit_data.stop_trading` не `true`
+- `bybit_data.max_concurrent_trades` — макс. одновременных сделок (по умолчанию `1`)
 
 Опционально в `bybit_data` хранится `api_key_expired_at` (синхронизируется при входе в профиль) — для напоминаний об истечении ключа.
+
+**Миграция** (если обновляешь существующую БД):
+
+```bash
+python -m scripts.migrate_max_concurrent_trades
+```
 
 Иначе он будет пропущен при `/short_3_limit`.
 

@@ -49,8 +49,32 @@ EN_CONFIGURATION = {
     "profile_menu_without_subscription": "My profile 👤\n\n🚫 Subscription is not active\n💬 Click the button below and follow the instructions to activate your subscription",
     "profile_menu_wait_sub_confirmation": "My profile 👤\n\n🎉 Thank you for your payment!\n🕒 Waiting for subscription confirmation\n💬 Please wait up to 24 hours for payment confirmation",
     "profile_settings": "⚙️ Settings \n\nAPI key: {api_key}\nAPI secret: {api_secret}\nTrade amount: {sum_for_trades}\n{api_key_expiry_line}",
-    "profile_settings_sum_for_trades": "Enter a new trade amount\n\nRecommended trade amount: {recommended_usdt} USDT",
-    "profile_settings_sum_for_trades_fallback": "Enter a new trade amount",
+    "profile_settings_api_key": "Enter the new API key",
+    "profile_settings_api_secret": "Enter the new API secret",
+    "api_key_instruction_caption": "📹 Guide: how to create a Bybit API key.\n\nAfter watching, tap «Enter API key».",
+    "profile_settings_sum_for_trades": "Enter a trade amount\n\nRecommended amount: {recommended_usdt} USDT",
+    "profile_settings_sum_for_trades_limited": (
+        "Enter a trade amount\n\n"
+        "Amount not higher than: {max_usdt} USDT\n"
+        "({percent}% of your futures balance)\n\n"
+        "This service rule helps protect your deposit: during averaging and stops the algorithm uses several orders, "
+        "and an oversized trade amount sharply increases drawdown risk."
+    ),
+    "profile_settings_sum_for_trades_api_required": (
+        "To calculate the permitted trade amount, set your API key and secret in profile settings first.\n\n"
+        "After saving the keys, come back here — we will show the maximum amount per service rules."
+    ),
+    "profile_settings_sum_for_trades_balance_zero": (
+        "Could not calculate the limit: futures balance is zero or the API key cannot read the balance.\n\n"
+        "Top up your Bybit account and check API key permissions, then try again."
+    ),
+    "profile_settings_sum_for_trades_fallback": "Enter a trade amount",
+    "profile_settings_sum_for_trades_exceeds_limit": (
+        "Amount {entered_sum} USDT exceeds the permitted limit.\n\n"
+        "Per project rules, the maximum trade amount is {max_usdt} USDT ({percent}% of your balance). "
+        "This limit is for the safety of your trades: it reduces deposit load during a series of averaging orders.\n\n"
+        "Please enter an amount not higher than {max_usdt} USDT."
+    ),
     "profile_settings_sum_for_trades_risk_warning": "⚠️ Are you sure?\n\nYou entered: {entered_sum} USDT\nRecommended amount: {recommended_usdt} USDT\n\nThis value leads to higher risks when running the algorithm.",
     "profile_balance": "💰 Futures account balance: {balance} USDT",
     "profile_balance_api_missing": "❌ Could not fetch balance: API key/secret are missing in profile settings.",
@@ -89,6 +113,8 @@ EN_CONFIGURATION = {
   "profile_btn": {
     "subscription_buy": "Buy subscription",
     "tech_support": "Tech support",
+    "edit_api_key_secret": "🔑 API Key / Secret",
+    "api_key_instruction_enter": "🔑 Enter API key",
     "confirm_risk_sum_for_trades": "✅ Yes, set amount",
     "cancel_risk_sum_for_trades": "✏️ No, enter another",
     "active_trades": "🟢 Active trades",
@@ -113,6 +139,11 @@ EN_CONFIGURATION = {
     "wait_confirm_list_empty": "No one is waiting for confirmation.",
     "subscribers_list_title": "Subscribers\n\nPage {page} of {pages} · total {total}",
     "subscribers_list_empty": "No subscribers yet.",
+    "subscribers_main_info": "Name: {name}\nTG ID: {tg_id}\nLanguage: {language}\nTrade amount limit: {trade_amount_limit_status}",
+    "trade_amount_limit_unlimited": "disabled (extended mode)",
+    "trade_amount_limit_standard": "standard (per service rules)",
+    "toggle_unlimited_trade_added": "User can set trade amount above the limit",
+    "toggle_unlimited_trade_removed": "Standard trade amount limit restored for user",
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Users",
@@ -139,6 +170,8 @@ EN_CONFIGURATION = {
     "edit_subscription_false_mode": "Disable subscription",
     "edit_date_end_subs": "Change subscription end date",
     "trading_list": "Trades list",
+    "toggle_unlimited_trade_add": "🔓 Allow amount above limit",
+    "toggle_unlimited_trade_remove": "🔒 Restore amount limit",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Back",

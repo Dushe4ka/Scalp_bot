@@ -176,17 +176,41 @@ python -m bybit_logic.ready_func.ex_api_key_info
 celery -A celery_app.celery_config call check_api_key_lifecycle
 ```
 
-## Рекомендуемая сумма сделки и цена подписки
+## Сумма сделки, лимиты и цена подписки
 
 В `.env`:
 
 ```env
 RECOMMENDED_TRADE_AMOUNT_PERCENT=1.75   # % от futures-баланса (1.75 = 1,75%)
 SUBSCRIPTION_PRICE_USD=79               # стоимость подписки на 1 месяц
+BREAKEVEN_AFTER_AVERAGING_COUNT=4       # после N усреднений меняется порог БУ
+TRIGGER_PERCENTAGE_AFTER_AVERAGING=1.0  # БУ после 4-го усреднения (%)
 ```
 
-- Рекомендация в настройках профиля: `баланс × (RECOMMENDED_TRADE_AMOUNT_PERCENT / 100)` — см. `bybit_logic/bybit_func/calculator.py`.
+### Лимит для обычных пользователей
+
+- Максимальная сумма сделки: `баланс × (RECOMMENDED_TRADE_AMOUNT_PERCENT / 100)` — см. `bybit_logic/bybit_func/calculator.py`.
+- В профиле показывается как **«Сумма не выше X USDT»**; ввод выше лимита **блокируется** с объяснением правил сервиса.
+- Лимит считается только при **указанных API key/secret** (без ключей бот просит сначала их настроить).
+- Тексты: `bot/languages/ru.py` → `profile_text.profile_settings_sum_for_trades_limited`, `profile_settings_sum_for_trades_exceeds_limit`.
+
+### Расширенный режим (whitelist)
+
+Пользователи из списка **без лимита** видят **рекомендуемую** сумму; при превышении — подтверждение риска (как раньше).
+
+| Назначение | Путь |
+|------------|------|
+| Список в MongoDB | коллекция `app_settings`, документ `_id: trade_amount_unlimited_tg_ids`, поле `tg_ids: [int, ...]` |
+| Репозиторий | `database/app_settings_repository.py` |
+| Логика лимита в боте | `bot/utils/trade_amount.py` |
+| Переключатель в админке | карточка подписчика → «Разрешить сумму без лимита» / «Вернуть лимит суммы» |
+
+При **каждом старте** `python -m bot.main` ID из `ADMIN_IDS` в `.env` автоматически добавляются в whitelist (`$addToSet`, без дубликатов).
+
+### Прочее
+
 - Тексты оплаты в боте и сумма в Mongo при покупке берутся из `SUBSCRIPTION_PRICE_USD`.
+- Одновременные сделки на пользователя: `bybit_data.max_concurrent_trades` (по умолчанию `1`). Миграция: `python -m scripts.migrate_max_concurrent_trades`.
 
 ## Уведомления об оплате (админ → пользователь)
 
@@ -412,6 +436,22 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 
 # Последние изменения (Jun 2026)
 
+## Лимит суммы сделки и whitelist
+
+- Обычные пользователи не могут выставить сумму выше `RECOMMENDED_TRADE_AMOUNT_PERCENT` от futures-баланса.
+- Пользователи из `app_settings.trade_amount_unlimited_tg_ids` — расширенный режим (рекомендация + подтверждение риска).
+- Админы из `ADMIN_IDS` попадают в whitelist при старте бота; в карточке подписчика — кнопка включения/отключения лимита.
+- Без API-ключей лимит не показывается — бот просит сначала указать key/secret.
+
+## Профиль, админка и алгоритм
+
+- Видео-инструкция `Create_api_key.MOV` при первом вводе API-ключа.
+- Команды `/profile` и `/admin` (admin — только для `ADMIN_IDS`, per-chat scope).
+- Кнопка «Открыть профиль» в уведомлении админу об оплате.
+- `max_concurrent_trades=1` в Mongo + проверка при постановке сделки в очередь.
+- БУ **1%** после 4-го усреднения (`BREAKEVEN_AFTER_AVERAGING_COUNT`, `TRIGGER_PERCENTAGE_AFTER_AVERAGING`).
+- Уведомления о плече — только админам; из пользовательских уведомлений убрана «Сторона».
+
 ## Срок действия API-ключа в профиле
 
 - При входе в личный кабинет / настройки — синхронизация `api_key_expired_at` с Bybit API.
@@ -422,7 +462,7 @@ Custom: JSON (`symbol`, `tg_id`, опционально `order_amount_override`)
 ## Подписка и профиль
 
 - Цена подписки: **79 USD** (`SUBSCRIPTION_PRICE_USD` в `.env`).
-- Рекомендуемая сумма сделки настраивается через `RECOMMENDED_TRADE_AMOUNT_PERCENT` (по умолчанию 1,75% от futures-баланса).
+- Лимит суммы сделки: `RECOMMENDED_TRADE_AMOUNT_PERCENT` (по умолчанию 1,75% от futures-баланса); whitelist — `app_settings` (см. раздел выше).
 - Админ при подтверждении/отклонении оплаты или продления отправляет пользователю уведомление в Telegram.
 
 ## Миграция short-алгоритмов на AsyncTradeEngine

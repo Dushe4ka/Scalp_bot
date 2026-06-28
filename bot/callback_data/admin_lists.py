@@ -39,3 +39,7 @@ class ActiveTradesPageCb(CallbackData, prefix="atlp"):
 class ActiveTradeItemCb(CallbackData, prefix="atli"):
     page: int
     idx: int
+
+
+class AdminOpenUserCb(CallbackData, prefix="aopu"):
+    tg_id: int

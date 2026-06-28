@@ -48,6 +48,8 @@ LEVERAGE = 10
 COUNT_LIMIT_ORDERS = int(os.getenv("COUNT_LIMIT_ORDERS"))
 LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
+BREAKEVEN_AFTER_AVERAGING_COUNT = int(os.getenv("BREAKEVEN_AFTER_AVERAGING_COUNT", "4"))
+TRIGGER_PERCENTAGE_AFTER_AVERAGING = float(os.getenv("TRIGGER_PERCENTAGE_AFTER_AVERAGING", "1.0"))
 SNAPSHOT_INTERVAL_SECONDS = 3.0
 
 
@@ -93,6 +95,7 @@ class TradeState:
     trailing_active: bool = False
     last_snapshot_at: float = 0.0
     active_position_idx: int | None = None
+    averaging_count: int = 0
 
 
 class TradeStateStore:
@@ -259,6 +262,16 @@ class TradeSession:
         """Multiuser: уведомление только владельцу сделки (tg_id), без рассылки subscribers."""
         send_notification_to_user_task.delay(int(self.state.tg_id), text)
 
+    def _notify_admins(self, text: str) -> None:
+        from celery_app.tasks.notifications import send_notification_to_admins_task
+
+        send_notification_to_admins_task.delay(text)
+
+    def _breakeven_trigger_percent(self) -> float:
+        if self.state.averaging_count >= BREAKEVEN_AFTER_AVERAGING_COUNT:
+            return TRIGGER_PERCENTAGE_AFTER_AVERAGING
+        return TRIGGER_PERCENTAGE
+
     def _close_info_from_state(self) -> dict[str, Any]:
         s = self.state
         return {
@@ -290,8 +303,6 @@ class TradeSession:
         return merged
 
     def _format_close_notification(self, close_info: dict[str, Any]) -> str:
-        side_raw = close_info.get("side") or POSITION_SIDE or "Sell"
-        side_label = "Лонг" if side_raw == "Buy" else "Шорт"
         pnl = float(close_info.get("pnl_usdt") or 0)
         pnl_sign = "+" if pnl >= 0 else ""
         source = close_info.get("source", "")
@@ -301,7 +312,6 @@ class TradeSession:
         return (
             "🔄 Позиция закрыта\n\n"
             f"📊 Символ: {close_info.get('symbol') or self.state.symbol}\n"
-            f"📈 Сторона: {side_label}\n"
             f"💰 Цена входа: {float(close_info.get('entry_price') or 0):.8g}\n"
             f"💸 Цена выхода: {float(close_info.get('exit_price') or 0):.8g}\n"
             f"💵 Финальный PnL: {pnl_sign}{pnl:.2f} USDT"
@@ -375,13 +385,15 @@ class TradeSession:
         if not leverage_result.get("ok"):
             if leverage_result.get("error_type") == "leverage_too_high":
                 max_lev = leverage_result.get("max_leverage")
-                self._notify_user(
+                admin_text = (
                     "❌ Позиция не открыта: ограничение плеча\n\n"
+                    f"👤 Пользователь: {s.name} ({s.tg_id})\n"
                     f"📊 Символ: {s.symbol}\n"
                     f"🎯 Запрошено: {LEVERAGE}x\n"
                     f"📉 Максимум по инструменту: {max_lev}x\n"
-                    "ℹ️ По правилам проекта снижение плеча отключено",
+                    "ℹ️ По правилам проекта снижение плеча отключено"
                 )
+                self._notify_admins(admin_text)
             logger.error(
                 "❌ Не удалось установить кредитное плечо %sx trade_id=%s symbol=%s: %s",
                 LEVERAGE, s.trade_id, s.symbol, leverage_result
@@ -431,7 +443,6 @@ class TradeSession:
             self._notify_user(
                 f"❌ Позиция не открыта\n\n📊 Символ: {s.symbol}\n"
                 f"💰 Сумма: {s.sum_for_trades} USDT\n"
-                f"📈 Сторона: {POSITION_SIDE}\n"
                 f"ℹ️ Bybit: {err_text}"
             )
             s.should_stop = True
@@ -439,7 +450,7 @@ class TradeSession:
 
         self._notify_user(
             f"🚀 Алгоритм запущен!\n\n📊 Символ: {s.symbol}\n"
-            f"💰 Сумма: {s.sum_for_trades} USDT\n📈 Сторона: {POSITION_SIDE}\n"
+            f"💰 Сумма: {s.sum_for_trades} USDT\n"
         )
 
         self.trailing_stop = TrailingStop(
@@ -517,7 +528,7 @@ class TradeSession:
             s.price_change_percent = ((s.entry_price - current_price) / s.entry_price) * 100
             s.pnl_usdt = (s.entry_price - current_price) * s.position_qty
 
-        if s.price_change_percent >= TRIGGER_PERCENTAGE and not s.trigger_called:
+        if s.price_change_percent >= self._breakeven_trigger_percent() and not s.trigger_called:
             if await self._apply_breakeven_and_activate_trailing():
                 s.trigger_called = True
 
@@ -588,6 +599,16 @@ class TradeSession:
             return
 
         if abs(current_avg_price - s.previous_avg_price) > 1e-8 or abs(current_size - (s.previous_position_size or 0)) > 1e-8:
+            if current_size > (s.previous_position_size or 0) + 1e-12:
+                s.averaging_count += 1
+                logger.info(
+                    "Усреднение #%s trade_id=%s symbol=%s size=%.8g avg=%.8g",
+                    s.averaging_count,
+                    s.trade_id,
+                    s.symbol,
+                    current_size,
+                    current_avg_price,
+                )
             s.entry_price = current_avg_price
             s.position_qty = current_size
             s.previous_avg_price = current_avg_price
@@ -752,6 +773,24 @@ class AsyncTradeEngine:
 
     async def _submit_trade_async(self, trade_id: str, symbol: str, tg_id: int, name: str, api_key: str, api_secret: str, sum_for_trades: float) -> None:
         symbol = symbol.upper()
+        from database.history_trades_repository import history_trades_db
+        from database.users_sync import get_max_concurrent_trades
+
+        max_trades = await asyncio.to_thread(get_max_concurrent_trades, tg_id)
+        active_count = await asyncio.to_thread(history_trades_db.count_active_trades, tg_id)
+        if active_count >= max_trades:
+            logger.warning(
+                "⏭️ Лимит одновременных сделок: tg_id=%s active=%s max=%s",
+                tg_id,
+                active_count,
+                max_trades,
+            )
+            send_notification_to_user_task.delay(
+                int(tg_id),
+                f"⚠️ Лимит одновременных сделок ({max_trades}) уже достигнут. Новый запуск пропущен.",
+            )
+            return
+
         if len(self._tasks) >= MAX_SESSIONS_PER_ENGINE:
             raise RuntimeError(
                 f"Engine at capacity ({MAX_SESSIONS_PER_ENGINE} sessions). "

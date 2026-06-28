@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramAPIError
 from database.subscribers import get_subscribers
 from bot.utils.misc import bot
@@ -249,7 +250,19 @@ async def send_info_payment_to_admin(payment_id: str, user_id: int, username: st
     1) в техподдержку (если задан TECH_SUPPORT_ID),
     2) затем администратору.
     """
+    from bot.callback_data.admin_lists import AdminOpenUserCb
+
     text = f"Пользователь {username} ({user_id}) Оплатил подписку. ID платежа: {payment_id}"
+    admin_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="👤 Открыть профиль пользователя",
+                    callback_data=AdminOpenUserCb(tg_id=int(user_id)).pack(),
+                )
+            ]
+        ]
+    )
     support_ok = True
     admin_ok = True
 
@@ -257,7 +270,8 @@ async def send_info_payment_to_admin(payment_id: str, user_id: int, username: st
         if TECH_SUPPORT_ID:
             await bot.send_message(
                 chat_id=TECH_SUPPORT_ID,
-                text=text
+                text=text,
+                reply_markup=admin_kb,
             )
         else:
             logger.warning("TECH_SUPPORT_ID не задан, отправка сообщения в техподдержку пропущена")
@@ -267,7 +281,7 @@ async def send_info_payment_to_admin(payment_id: str, user_id: int, username: st
 
     try:
         for admin_id in sorted(ADMIN_IDS):
-            await bot.send_message(chat_id=admin_id, text=text)
+            await bot.send_message(chat_id=admin_id, text=text, reply_markup=admin_kb)
         if not ADMIN_IDS:
             logger.warning("ADMIN_IDS пуст — отправка сообщения администратору пропущена")
             admin_ok = False

@@ -13,6 +13,7 @@ from bot.callback_data.admin_lists import (
     WaitConfirmUserCb,
 )
 from database.users_repository import db
+from database.app_settings_repository import app_settings_db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
 
 
@@ -344,6 +345,16 @@ async def back_to_profile_settings_kb(user_id: int, lang: str) -> InlineKeyboard
     return kb
 
 
+async def api_key_instruction_kb(lang: str) -> InlineKeyboardBuilder:
+    """Кнопки после видео-инструкции по созданию API ключа."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    kb.button(text=cfg["profile_btn"]["api_key_instruction_enter"], callback_data="profile_api_key_instruction_enter")
+    kb.button(text=cfg["general"]["back"], callback_data="settings_profile")
+    kb.adjust(1)
+    return kb
+
+
 async def profile_settings_sum_risk_kb(lang: str) -> InlineKeyboardBuilder:
     """
     Подтверждение рискованной суммы сделки.
@@ -659,6 +670,7 @@ async def positive_proccess_search_subscribers_kb(
     lang: str,
     *,
     from_subscribers_list: bool = False,
+    target_tg_id: int | None = None,
 ) -> InlineKeyboardBuilder:
     """
     Кнопки в поиске подписчиков
@@ -673,6 +685,18 @@ async def positive_proccess_search_subscribers_kb(
     kb.button(text=cfg["admin_btn"]["subscription_settings"], callback_data="subscription_settings")
     kb.button(text=cfg["admin_btn"]["bybit_settings"], callback_data="bybit_settings")
     kb.button(text=cfg["admin_btn"]["statistics_info"], callback_data="statistics_info")
+    if target_tg_id is not None:
+        is_unlimited = await app_settings_db.is_unlimited_trade_amount(int(target_tg_id))
+        if is_unlimited:
+            kb.button(
+                text=cfg["admin_btn"]["toggle_unlimited_trade_remove"],
+                callback_data="admin_toggle_unlimited_trade_amount",
+            )
+        else:
+            kb.button(
+                text=cfg["admin_btn"]["toggle_unlimited_trade_add"],
+                callback_data="admin_toggle_unlimited_trade_amount",
+            )
     kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_subscribers_by_username_id")
     kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="subscribers")
     kb.adjust(1)
