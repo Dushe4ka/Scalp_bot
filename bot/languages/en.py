@@ -2,7 +2,7 @@ from config import URL_PAYMENT, SUBSCRIPTION_PRICE_USD
 
 EN_CONFIGURATION = {
   "start_text": {
-    "greeting": "Hello! I'm ZdormanBot 👋",
+    "greeting": "Hi! I'm ZdormanBot 👋",
     "greeting_help": "I'll help you subscribe and set up trading on Bybit.",
     "greeting_help_first": "Let me help you subscribe and set up trading on Bybit.",
     "quick_start": "📋 Quick start:\n1. Pay for subscription\n2. Wait for confirmation (up to 24h)\n3. Add your Bybit API key\n4. Set trade amount\n5. Done — the algorithm trades automatically",
