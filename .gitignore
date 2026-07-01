@@ -19,3 +19,7 @@ __pycache__/
 
 # Системные файлы
 .DS_Store
+
+# Celery Beat (локальное расписание)
+celerybeat-schedule.db
+celerybeat-schedule.*

@@ -15,6 +15,7 @@ from bot.keyboards.inline_kb import (
     search_wait_confirm_user_kb,
     positive_proccess_search_wait_confirm_user_kb,
     positive_proccess_search_wait_confirm_user_kb_with_subscription,
+    payment_status_notify_kb,
     subscribers_kb,
     positive_proccess_search_subscribers_kb,
     search_subscribers_kb,
@@ -34,6 +35,10 @@ from bot.callback_data.admin_lists import (
     WaitConfirmListPageCb,
     WaitConfirmUserCb,
     AdminOpenUserCb,
+    AdminConfirmSubscriptionCb,
+    AdminCancelSubscriptionCb,
+    AdminProlongSubscriptionCb,
+    AdminCancelProlongSubscriptionCb,
     SubscribersListPageCb,
     SubscribersUserCb,
 )
@@ -60,7 +65,10 @@ async def _notify_user_payment_status(
     text = text_config.get("subscription_text", {}).get(message_key)
     if not text:
         return
-    await notify_user_telegram(bot, tg_id, text)
+
+    kb_builder = await payment_status_notify_kb(user_lang, message_key)
+    reply_markup = kb_builder.as_markup() if kb_builder is not None else None
+    await notify_user_telegram(bot, tg_id, text, reply_markup=reply_markup)
 
 
 async def _wait_confirm_kb_from_list(state: FSMContext) -> bool:
@@ -111,12 +119,23 @@ async def _render_subscriber_card(
 def _user_doc_for_template(doc: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in doc.items() if k != "_id"}
 
+
+def _subscription_status_label(text_config: dict[str, Any], active: bool) -> str:
+    key = "subscription_status_active" if active else "subscription_status_inactive"
+    return text_config["admin_text"][key]
+
+
+def _stop_trading_label(text_config: dict[str, Any], stopped: bool) -> str:
+    key = "stop_trading_yes" if stopped else "stop_trading_no"
+    return text_config["admin_text"][key]
+
+
 def _format_admin_user_text_by_template(user: dict[str, Any], text_config: dict[str, Any]) -> str:
     template = text_config.get("admin_text", {}).get("user_info")
 
     subscription_data = user.get("subscription_data") or {}
     subscription = subscription_data.get("subscription")
-    subscription_status = "Активна" if subscription else "Не активна"
+    subscription_status = _subscription_status_label(text_config, bool(subscription))
 
     return template.format(
         name=user.get("name", "—"),
@@ -149,7 +168,7 @@ def _format_admin_subscribers_text_by_template(
         
         subscription_data = user.get("subscription_data") or {}
         subscription = subscription_data.get("subscription")
-        subscription_status = "Активна" if subscription else "Не активна"
+        subscription_status = _subscription_status_label(text_config, bool(subscription))
         
         return template.format(
             subscription_status=subscription_status,
@@ -166,7 +185,7 @@ def _format_admin_subscribers_text_by_template(
         bybit_data = user.get("bybit_data") or {}
         api_key = "✅" if bybit_data.get("api_key") else "❌"
         api_secret = "✅" if bybit_data.get("api_secret") else "❌"
-        stop_trading = "Да" if bybit_data.get("stop_trading") is True else "Нет"
+        stop_trading = _stop_trading_label(text_config, bybit_data.get("stop_trading") is True)
         return template.format(
             api_key=api_key,
             api_secret=api_secret,
@@ -201,8 +220,9 @@ async def _format_admin_statistics_project_text_by_template(text_config: dict[st
     )
 
 @router.message(Command("admin"))
-async def admin_start(message: Message, lang: str):
+async def admin_start(message: Message, state: FSMContext, lang: str):
     """Обработка команды /admin"""
+    await state.clear()
     user_id = message.from_user.id
     username = message.from_user.username or ""
 
@@ -216,8 +236,9 @@ async def admin_start(message: Message, lang: str):
     logger.info(f"Пользователь {user_id} ({username}) открыл админ-панель")
 
 @router.callback_query(F.data == "admin_menu")
-async def admin_menu(callback: CallbackQuery, lang: str):
+async def admin_menu(callback: CallbackQuery, state: FSMContext, lang: str):
     """Обработка нажатия на кнопку "Админ-панель"""
+    await state.clear()
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
 
@@ -247,15 +268,15 @@ async def admin_stop_all_trading(callback: CallbackQuery, lang: str):
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    report = (
-                        f"{data.get('message', 'Массовая остановка завершена')}\n\n"
-                        f"👥 Проверено пользователей: {data.get('processed', 0)}\n"
-                        f"✅ Успешно остановлено: {data.get('stopped', 0)}\n"
-                        f"⏭️ Пропущено (нет API ключей): {data.get('skipped_no_keys', 0)}\n"
-                        f"❌ Ошибок: {data.get('errors_count', 0)}"
+                    report = text_config["admin_text"]["stop_all_trading_report"].format(
+                        processed=data.get("processed", 0),
+                        stopped=data.get("stopped", 0),
+                        skipped=data.get("skipped_no_keys", 0),
+                        errors=data.get("errors_count", 0),
                     )
+                    message = f"{data.get('message', text_config['admin_text']['stop_all_trading_done'])}\n\n{report}"
                     text = text_config["admin_text"]["stop_all_trading_success"].format(
-                        message=report,
+                        message=message,
                     )
                 else:
                     error_text = await response.text()
@@ -392,15 +413,17 @@ async def _render_admin_user_card(
     if wait_confirm and not is_subscriber:
         kb = await positive_proccess_search_wait_confirm_user_kb(
             lang,
+            target_tg_id=int(tg_id),
             from_wait_list=await _wait_confirm_kb_from_list(state),
         )
     elif wait_confirm and is_subscriber:
         kb = await positive_proccess_search_wait_confirm_user_kb_with_subscription(
             lang,
+            target_tg_id=int(tg_id),
             from_wait_list=await _wait_confirm_kb_from_list(state),
         )
     else:
-        text = f"{text}\n\nℹ️ Пользователь ещё не подтвердил оплату в боте (не нажал «Да ✓»)."
+        text = f"{text}\n\n{text_config['admin_text']['user_not_confirmed_payment_bot']}"
         kb = await search_wait_confirm_user_kb(callback.from_user.id, lang)
 
     await safe_edit_message(callback, text, reply_markup=kb.as_markup())
@@ -448,11 +471,13 @@ async def wait_confirm_list_pick_user(
     if not is_subscriber:
         kb = await positive_proccess_search_wait_confirm_user_kb(
             lang,
+            target_tg_id=int(tg_id),
             from_wait_list=True,
         )
     else:
         kb = await positive_proccess_search_wait_confirm_user_kb_with_subscription(
             lang,
+            target_tg_id=int(tg_id),
             from_wait_list=True,
         )
     await safe_edit_message(
@@ -513,6 +538,7 @@ async def process_search_by_username_id(message: Message, state: FSMContext, lan
             reply_markup=(
                 await positive_proccess_search_wait_confirm_user_kb(
                     lang,
+                    target_tg_id=int(user_info_by_username_id.get("tg_id")),
                     from_wait_list=await _wait_confirm_kb_from_list(state),
                 )
             ).as_markup(),
@@ -524,6 +550,7 @@ async def process_search_by_username_id(message: Message, state: FSMContext, lan
             reply_markup=(
                 await positive_proccess_search_wait_confirm_user_kb_with_subscription(
                     lang,
+                    target_tg_id=int(user_info_by_username_id.get("tg_id")),
                     from_wait_list=await _wait_confirm_kb_from_list(state),
                 )
             ).as_markup(),
@@ -536,206 +563,207 @@ async def process_search_by_username_id(message: Message, state: FSMContext, lan
         )
     logger.info(f"Админ {admin_user_id} ({admin_username}) ищет пользователя {username_id}")
 
-@router.callback_query(F.data == "confirm_subscription")
-async def confirm_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
+@router.callback_query(AdminConfirmSubscriptionCb.filter())
+async def confirm_subscription(
+    callback: CallbackQuery,
+    callback_data: AdminConfirmSubscriptionCb,
+    state: FSMContext,
+    lang: str,
+):
     """Админ подтверждает подписку пользователю и окно обновляется свежими данными."""
-    await callback.answer()
-    
     admin_user_id = callback.from_user.id
     admin_username = callback.from_user.username or ""
     text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
 
-    data = await state.get_data()
+    await state.update_data(tg_id=target_tg_id)
 
-    username_id = data.get("tg_id")
-    if username_id is None:
-        error_search_user = text_config["admin_text"]["error_search_user"]
-        await callback.answer(error_search_user, show_alert=True)
+    user_info = await db.get_user(target_tg_id)
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
         return
 
-    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
-    tg_id = user_info_by_username_id.get("tg_id")
-    subscription_data = user_info_by_username_id.get("subscription_data")
-    wait_confirm = subscription_data.get("wait_sub_confirmation")
-
-    if not wait_confirm:
-        user_not_wait_confirm = text_config["admin_text"]["user_not_wait_confirm"]
+    subscription_data = user_info.get("subscription_data") or {}
+    if not subscription_data.get("wait_sub_confirmation"):
+        await callback.answer()
         await safe_edit_message(
             callback,
-            text=user_not_wait_confirm,
+            text=text_config["admin_text"]["user_not_wait_confirm"],
             reply_markup=(await search_wait_confirm_user_kb(admin_user_id, lang)).as_markup(),
         )
         return
-    else:
-        try:
-            await db.admin_check_subscription(int(username_id))
-        except (ValidationError, UsersRepositoryError) as e:
-            await callback.answer(f"Не удалось подтвердить: {e}", show_alert=True)
-            return
-
-        user = await db.get_user(int(tg_id))
-        if user is None:
-            error_user_not_found = text_config["admin_text"]["error_user_not_found"]
-            await callback.answer(error_user_not_found, show_alert=True)
-            return
-
-        await safe_edit_message(
-            callback,
-            _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
-            reply_markup=(
-                await positive_proccess_search_wait_confirm_user_kb(
-                    lang,
-                    from_wait_list=await _wait_confirm_kb_from_list(state),
-                )
-            ).as_markup(),
-        )
-        await _notify_user_payment_status(callback.bot, user, "payment_confirmed")
-        logger.info(f"Админ {admin_user_id} ({admin_username}) подтвердил подписку пользователю {username_id}")
-
-@router.callback_query(F.data == "admin_prolong_subscription")
-async def prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
-    """Админ продлевает подписку пользователю и окно обновляется свежими данными."""
-    await callback.answer()
-
-    user_id = callback.from_user.id
-    username = callback.from_user.username or ""
-    text_config = await get_config_lang(lang)
-
-    data = await state.get_data()
-    username_id = data.get("tg_id")
-    if username_id is None:
-        error_search_user = text_config["admin_text"]["error_search_user"]
-        await callback.answer(error_search_user, show_alert=True)
-        return
-
-    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
-    tg_id = user_info_by_username_id.get("tg_id")
-    subscription_data = user_info_by_username_id.get("subscription_data")
-    wait_confirm = subscription_data.get("wait_sub_confirmation")
-
-    if not wait_confirm:
-        user_not_wait_confirm = text_config["admin_text"]["user_not_wait_confirm"]
-        await safe_edit_message(
-            callback,
-            text=user_not_wait_confirm,
-            reply_markup=(await search_wait_confirm_user_kb(user_id, lang)).as_markup(),
-        )
-        return
-    else:
-        try:
-            await db.admin_prolong_subscription(int(tg_id))
-        except (ValidationError, UsersRepositoryError) as e:
-            await callback.answer(f"Не удалось продлить: {e}", show_alert=True)
-            return
-
-        user = await db.get_user(int(tg_id))
-        if user is None:
-            error_user_not_found = text_config["admin_text"]["error_user_not_found"]
-            await callback.answer(error_user_not_found, show_alert=True)
-            return
-
-        await safe_edit_message(
-            callback,
-            _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
-            reply_markup=(
-                await positive_proccess_search_wait_confirm_user_kb_with_subscription(
-                    lang,
-                    from_wait_list=await _wait_confirm_kb_from_list(state),
-                )
-            ).as_markup(),
-        )
-        await _notify_user_payment_status(callback.bot, user, "prolong_confirmed")
-        logger.info(f"Админ {user_id} ({username}) продлил подписку пользователю {username_id}")
-
-@router.callback_query(F.data == "cancel_prolong_subscription")
-async def cancel_prolong_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
-    """Админ отклоняет продление подписки пользователю и окно обновляется свежими данными."""
-    await callback.answer()
-
-    user_id = callback.from_user.id
-    username = callback.from_user.username or ""
-    text_config = await get_config_lang(lang)
-
-    data = await state.get_data()
-    username_id = data.get("tg_id")
-    if username_id is None:
-        error_search_user = text_config["admin_text"]["error_search_user"]
-        await callback.answer(error_search_user, show_alert=True)
-        return
-    
-    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
-    tg_id = user_info_by_username_id.get("tg_id")
 
     try:
-        await db.admin_cancel_prolong_subscription(int(tg_id))
+        await db.admin_check_subscription(target_tg_id)
     except (ValidationError, UsersRepositoryError) as e:
-        await callback.answer(f"Не удалось отклонить: {e}", show_alert=True)
+        await callback.answer(f"Не удалось подтвердить: {e}", show_alert=True)
         return
 
-    user = await db.get_user(int(tg_id))
+    user = await db.get_user(target_tg_id)
     if user is None:
-        error_user_not_found = text_config["admin_text"]["error_user_not_found"]
-        await callback.answer(error_user_not_found, show_alert=True)
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
         return
 
-    await safe_edit_message(
-        callback,
-        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
-        reply_markup=(
-            await positive_proccess_search_wait_confirm_user_kb_with_subscription(
-                lang,
-                from_wait_list=await _wait_confirm_kb_from_list(state),
-            )
-        ).as_markup(),
-    )
-    await _notify_user_payment_status(callback.bot, user, "prolong_rejected")
-
-    logger.info(f"Админ {user_id} ({username}) отклонил продление подписки пользователю {username_id}")
-
-@router.callback_query(F.data == "cancel_subscription")
-async def cancel_subscription(callback: CallbackQuery, state: FSMContext, lang: str):
-    """Админ отменяет подписку пользователю и окно обновляется свежими данными."""
     await callback.answer()
-
-    user_id = callback.from_user.id
-    username = callback.from_user.username or ""
-    text_config = await get_config_lang(lang)
-
-    data = await state.get_data()
-    username_id = data.get("tg_id")
-    if username_id is None:
-        error_search_user = text_config["admin_text"]["error_search_user"]
-        await callback.answer(error_search_user, show_alert=True)
-        return
-    
-    user_info_by_username_id = await db.get_user_by_username_or_id(username_id)
-    tg_id = user_info_by_username_id.get("tg_id")
-    
-    try:
-        await db.admin_cancel_subscription(int(tg_id))
-    except (ValidationError, UsersRepositoryError) as e:
-        await callback.answer(f"Не удалось отменить: {e}", show_alert=True)
-        return
-
-    user = await db.get_user(int(tg_id))
-    if user is None:
-        error_user_not_found = text_config["admin_text"]["error_user_not_found"]
-        await callback.answer(error_user_not_found, show_alert=True)
-        return
-
     await safe_edit_message(
         callback,
         _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
         reply_markup=(
             await positive_proccess_search_wait_confirm_user_kb(
                 lang,
+                target_tg_id=target_tg_id,
+                from_wait_list=await _wait_confirm_kb_from_list(state),
+            )
+        ).as_markup(),
+    )
+    await _notify_user_payment_status(callback.bot, user, "payment_confirmed")
+    logger.info(
+        "Админ %s (%s) подтвердил подписку пользователю %s",
+        admin_user_id,
+        admin_username,
+        target_tg_id,
+    )
+
+
+@router.callback_query(AdminProlongSubscriptionCb.filter())
+async def prolong_subscription(
+    callback: CallbackQuery,
+    callback_data: AdminProlongSubscriptionCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Админ продлевает подписку пользователю и окно обновляется свежими данными."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
+
+    await state.update_data(tg_id=target_tg_id)
+
+    user_info = await db.get_user(target_tg_id)
+    if user_info is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    subscription_data = user_info.get("subscription_data") or {}
+    if not subscription_data.get("wait_sub_confirmation"):
+        await callback.answer()
+        await safe_edit_message(
+            callback,
+            text=text_config["admin_text"]["user_not_wait_confirm"],
+            reply_markup=(await search_wait_confirm_user_kb(user_id, lang)).as_markup(),
+        )
+        return
+
+    try:
+        await db.admin_prolong_subscription(target_tg_id)
+    except (ValidationError, UsersRepositoryError) as e:
+        await callback.answer(f"Не удалось продлить: {e}", show_alert=True)
+        return
+
+    user = await db.get_user(target_tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+        reply_markup=(
+            await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+                lang,
+                target_tg_id=target_tg_id,
+                from_wait_list=await _wait_confirm_kb_from_list(state),
+            )
+        ).as_markup(),
+    )
+    await _notify_user_payment_status(callback.bot, user, "prolong_confirmed")
+    logger.info("Админ %s (%s) продлил подписку пользователю %s", user_id, username, target_tg_id)
+
+
+@router.callback_query(AdminCancelProlongSubscriptionCb.filter())
+async def cancel_prolong_subscription(
+    callback: CallbackQuery,
+    callback_data: AdminCancelProlongSubscriptionCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Админ отклоняет продление подписки пользователю и окно обновляется свежими данными."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
+
+    await state.update_data(tg_id=target_tg_id)
+
+    try:
+        await db.admin_cancel_prolong_subscription(target_tg_id)
+    except (ValidationError, UsersRepositoryError) as e:
+        await callback.answer(f"Не удалось отклонить: {e}", show_alert=True)
+        return
+
+    user = await db.get_user(target_tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+        reply_markup=(
+            await positive_proccess_search_wait_confirm_user_kb_with_subscription(
+                lang,
+                target_tg_id=target_tg_id,
+                from_wait_list=await _wait_confirm_kb_from_list(state),
+            )
+        ).as_markup(),
+    )
+    await _notify_user_payment_status(callback.bot, user, "prolong_rejected")
+    logger.info("Админ %s (%s) отклонил продление подписки пользователю %s", user_id, username, target_tg_id)
+
+
+@router.callback_query(AdminCancelSubscriptionCb.filter())
+async def cancel_subscription(
+    callback: CallbackQuery,
+    callback_data: AdminCancelSubscriptionCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Админ отменяет подписку пользователю и окно обновляется свежими данными."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
+
+    await state.update_data(tg_id=target_tg_id)
+
+    try:
+        await db.admin_cancel_subscription(target_tg_id)
+    except (ValidationError, UsersRepositoryError) as e:
+        await callback.answer(f"Не удалось отменить: {e}", show_alert=True)
+        return
+
+    user = await db.get_user(target_tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    await callback.answer()
+    await safe_edit_message(
+        callback,
+        _format_admin_user_text_by_template(_user_doc_for_template(user), text_config),
+        reply_markup=(
+            await positive_proccess_search_wait_confirm_user_kb(
+                lang,
+                target_tg_id=target_tg_id,
                 from_wait_list=await _wait_confirm_kb_from_list(state),
             )
         ).as_markup(),
     )
     await _notify_user_payment_status(callback.bot, user, "payment_rejected")
-
-    logger.info(f"Админ {user_id} ({username}) отклонил подписку пользователю {username_id}")
+    logger.info("Админ %s (%s) отклонил подписку пользователю %s", user_id, username, target_tg_id)
 
 # -------------------------------------------------------------
 # Подписчики

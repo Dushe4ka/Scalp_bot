@@ -8,35 +8,55 @@ from aiogram.types import InlineKeyboardMarkup
 from bot.keyboards.inline_kb import (
     profile_menu_kb,
     profile_menu_kb_without_subscription,
-    profile_menu_wait_sub_confirmation_kb_with_subscription,
-    profile_menu_wait_sub_confirmation_kb_without_subscription,
+    profile_menu_wait_sub_confirmation_kb,
 )
 from bot.languages._lang_func import get_config_lang
 from bot.utils.api_key_expiry import refresh_user_api_key_expiry, build_api_key_expiry_line
 from bot.utils.misc import _format_dt
+from bot.utils.onboarding import build_onboarding_checklist
 from database.users_repository import db
 
 
-async def _format_profile_text_by_template(user: dict[str, Any], text_config: dict[str, Any]) -> str:
-    template = text_config.get("profile_text", {}).get("profile_menu")
+def _format_sum_display(bybit_data: dict[str, Any]) -> str:
+    raw = bybit_data.get("sum_for_trades")
+    if raw is None or str(raw).strip() in {"", "0", "0.0"}:
+        return "не указана"
+    return str(raw)
+
+
+async def _build_profile_header(user: dict[str, Any] | None, text_config: dict[str, Any], template_key: str) -> str:
+    user = user or {}
     subscription_data = user.get("subscription_data") or {}
     bybit_data = user.get("bybit_data") or {}
-
-    payment_date = _format_dt(subscription_data.get("payment_date"))
-    subscription_type = subscription_data.get("subscription_type")
-    sum_for_trades = bybit_data.get("sum_for_trades")
-    api_key = "✅" if bybit_data.get("api_key") else "❌"
-    api_key_expiry_line = build_api_key_expiry_line(
-        bybit_data,
-        text_config["profile_text"]["profile_api_key_expiry"],
+    checklist = build_onboarding_checklist(
+        user,
+        text_config,
+        is_subscriber=bool(subscription_data.get("subscription")),
+        is_wait_confirm=bool(subscription_data.get("wait_sub_confirmation")),
     )
 
-    return template.format(
-        payment_date=payment_date,
-        subscription_type=subscription_type,
-        sum_for_trades=sum_for_trades,
-        api_key=api_key,
-        api_key_expiry_line=api_key_expiry_line,
+    if template_key == "profile_menu":
+        api_key = "✅ указан" if bybit_data.get("api_key") else "❌ не указан"
+        api_key_expiry_line = build_api_key_expiry_line(
+            bybit_data,
+            text_config["profile_text"]["profile_api_key_expiry"],
+        )
+        return text_config["profile_text"]["profile_menu"].format(
+            payment_date=_format_dt(subscription_data.get("payment_date")),
+            subscription_type=subscription_data.get("subscription_type") or "—",
+            sum_for_trades=_format_sum_display(bybit_data),
+            api_key=api_key,
+            api_key_expiry_line=api_key_expiry_line,
+            onboarding_checklist=checklist,
+        )
+
+    if template_key == "profile_menu_wait_sub_confirmation":
+        return text_config["profile_text"]["profile_menu_wait_sub_confirmation"].format(
+            onboarding_checklist=checklist,
+        )
+
+    return text_config["profile_text"]["profile_menu_without_subscription"].format(
+        onboarding_checklist=checklist,
     )
 
 
@@ -50,17 +70,14 @@ async def build_profile_menu_view(user_id: int, lang: str) -> tuple[str, InlineK
     if user and user.get("bybit_data", {}).get("api_key") and user.get("bybit_data", {}).get("api_secret"):
         user = await refresh_user_api_key_expiry(user)
 
-    if is_subscriber and not is_wait_sub_confirmation:
-        text = await _format_profile_text_by_template(user, text_config)
+    if is_wait_sub_confirmation:
+        text = await _build_profile_header(user, text_config, "profile_menu_wait_sub_confirmation")
+        markup = (await profile_menu_wait_sub_confirmation_kb(user_id, lang)).as_markup()
+    elif is_subscriber:
+        text = await _build_profile_header(user, text_config, "profile_menu")
         markup = (await profile_menu_kb(user_id, lang)).as_markup()
-    elif is_subscriber and is_wait_sub_confirmation:
-        text = await _format_profile_text_by_template(user, text_config)
-        markup = (await profile_menu_wait_sub_confirmation_kb_with_subscription(user_id, lang)).as_markup()
-    elif not is_subscriber and is_wait_sub_confirmation:
-        text = text_config["profile_text"]["profile_menu_wait_sub_confirmation"]
-        markup = (await profile_menu_wait_sub_confirmation_kb_without_subscription(user_id, lang)).as_markup()
     else:
-        text = text_config["profile_text"]["profile_menu_without_subscription"]
+        text = await _build_profile_header(user, text_config, "profile_menu_without_subscription")
         markup = (await profile_menu_kb_without_subscription(user_id, lang)).as_markup()
 
     return text, markup

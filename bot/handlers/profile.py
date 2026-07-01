@@ -8,10 +8,6 @@ from aiogram.types import CallbackQuery, Message, FSInputFile
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from bot.keyboards.inline_kb import (
-    profile_menu_kb_without_subscription, 
-    profile_menu_kb,
-    profile_menu_wait_sub_confirmation_kb_without_subscription,
-    profile_menu_wait_sub_confirmation_kb_with_subscription,
     profile_statistics_kb,
     profile_settings_kb,
     back_to_profile_settings_kb,
@@ -38,8 +34,10 @@ from bot.utils.trade_amount import (
     build_sum_for_trades_prompt,
     format_trade_amount_percent,
     resolve_trade_amount_limit,
+    user_with_api_credentials,
 )
 from bot.utils.api_key_expiry import refresh_user_api_key_expiry, build_api_key_expiry_line
+from bot.utils.onboarding import is_trading_features_unlocked, get_onboarding_steps, _has_trade_sum
 from bot.utils.profile_menu import build_profile_menu_view
 from bot.utils.misc import _format_dt
 from database.users_repository import db, UsersRepositoryError, ValidationError
@@ -55,6 +53,15 @@ from bot.config import SERVER_URL
 router = Router()
 logger = setup_logger(__name__)
 
+
+async def _reject_if_trading_locked(callback: CallbackQuery, lang: str) -> bool:
+    """True если раздел заблокирован (ожидание подтверждения подписки)."""
+    if await is_trading_features_unlocked(callback.from_user.id):
+        return False
+    text_config = await get_config_lang(lang)
+    await callback.answer(text_config["profile_text"]["feature_locked_wait_confirm"], show_alert=True)
+    return True
+
 API_KEY_INSTRUCTION_VIDEO = (
     Path(__file__).resolve().parents[1] / "instructions" / "Create_api_key.MOV"
 )
@@ -67,14 +74,25 @@ def _format_key_secret(key_secret: str) -> str:
         return f"{key_secret[:6]}...{key_secret[-4:]}"
 
 
-def _format_trade_history_row(idx: int, trade: dict[str, Any]) -> str:
+def _api_account_mode_label(lang: str) -> str:
+    if USE_DEMO:
+        return "Demo Trading" if lang == "en" else "Demo Trading (демо)"
+    return "Mainnet (live)" if lang == "en" else "Mainnet (реальный)"
+
+
+def _format_trade_history_row(idx: int, trade: dict[str, Any], text_config: dict[str, Any]) -> str:
     symbol = str(trade.get("symbol") or "—")
     side = str(trade.get("side") or "—")
     state = str(trade.get("state") or "closed").lower()
     pnl = float(trade.get("pnl_usdt") or 0)
     pnl_sign = "+" if pnl >= 0 else ""
-    state_label = "🟢 active" if state == "active" else "⚪️ closed"
-    return f"{idx}. {symbol} | {side} | {state_label} | PnL: {pnl_sign}{pnl:.2f} USDT"
+    pt = text_config["profile_text"]
+    if state == "active":
+        state_label = f"🟢 {pt['trade_state_active']}"
+    else:
+        state_label = f"⚪️ {pt['trade_state_closed']}"
+    pnl_text = pt["trade_history_pnl"].format(value=f"{pnl_sign}{pnl:.2f} USDT")
+    return f"{idx}. {symbol} | {side} | {state_label} | {pnl_text}"
 
 
 def _format_history_dt(value: Any) -> str:
@@ -91,9 +109,10 @@ def _format_history_dt(value: Any) -> str:
 
 
 def _format_trade_details_text(text_config: dict[str, Any], trade: dict[str, Any]) -> str:
+    pt = text_config["profile_text"]
     symbol = str(trade.get("symbol") or "—")
-    side = str(trade.get("side") or "—")
     state = str(trade.get("state") or "closed").lower()
+    state_label = pt["trade_state_active"] if state == "active" else pt["trade_state_closed"]
     entry_price = float(trade.get("entry_price") or 0)
     exit_price = float(trade.get("exit_price") or 0)
     size = float(trade.get("size") or 0)
@@ -103,16 +122,16 @@ def _format_trade_details_text(text_config: dict[str, Any], trade: dict[str, Any
     close_time = _format_history_dt(trade.get("close_time"))
     created_at = _format_history_dt(trade.get("created_at"))
     return (
-        f"{text_config['profile_text']['profile_history_trade_details_title']}\n\n"
-        f"📊 Символ: {symbol}\n"
-        f"🏷️ Состояние: {state}\n"
-        f"💰 Вход: {entry_price:.8g}\n"
-        f"💸 Выход: {exit_price:.8g}\n"
-        f"📦 Размер: {size:.8g}\n"
-        f"💵 PnL: {pnl_sign}{pnl:.2f} USDT\n"
-        f"🕒 Open: {open_time}\n"
-        f"🕒 Close: {close_time}\n"
-        f"🗂️ Добавлено: {created_at}"
+        f"{pt['profile_history_trade_details_title']}\n\n"
+        f"{pt['trade_details_symbol'].format(value=symbol)}\n"
+        f"{pt['trade_details_state'].format(value=state_label)}\n"
+        f"{pt['trade_details_entry'].format(value=f'{entry_price:.8g}')}\n"
+        f"{pt['trade_details_exit'].format(value=f'{exit_price:.8g}')}\n"
+        f"{pt['trade_details_size'].format(value=f'{size:.8g}')}\n"
+        f"{pt['trade_details_pnl'].format(value=f'{pnl_sign}{pnl:.2f} USDT')}\n"
+        f"{pt['trade_details_open'].format(value=open_time)}\n"
+        f"{pt['trade_details_close'].format(value=close_time)}\n"
+        f"{pt['trade_details_created'].format(value=created_at)}"
     )
 
 
@@ -205,19 +224,19 @@ async def _stop_user_all_trades(user_id: int) -> dict[str, Any]:
 def _format_active_trade_details_text(text_config: dict[str, Any], trade: dict[str, Any] | None, symbol: str) -> str:
     if not trade:
         return text_config["profile_text"]["active_trade_not_found"].format(symbol=symbol)
-    side = str(trade.get("side") or "—")
+    pt = text_config["profile_text"]
     size = float(trade.get("size") or 0)
     entry_price = float(trade.get("entry_price") or 0)
     pnl = float(trade.get("pnl_usdt") or 0)
     pnl_sign = "+" if pnl >= 0 else ""
     open_time = _format_history_dt(trade.get("open_time"))
     return (
-        f"{text_config['profile_text']['active_trade_details_title']}\n\n"
-        f"📊 Символ: {symbol}\n"
-        f"📦 Размер: {size:.8g}\n"
-        f"💰 Цена входа: {entry_price:.8g}\n"
-        f"💵 PnL: {pnl_sign}{pnl:.2f} USDT\n"
-        f"🕒 Open: {open_time}"
+        f"{pt['active_trade_details_title']}\n\n"
+        f"{pt['trade_details_symbol'].format(value=symbol)}\n"
+        f"{pt['trade_details_size'].format(value=f'{size:.8g}')}\n"
+        f"{pt['trade_details_entry_active'].format(value=f'{entry_price:.8g}')}\n"
+        f"{pt['trade_details_pnl'].format(value=f'{pnl_sign}{pnl:.2f} USDT')}\n"
+        f"{pt['trade_details_open'].format(value=open_time)}"
     )
 
 
@@ -292,20 +311,33 @@ async def _format_profile_text_by_template(user: dict[str, Any], text_config: di
 
     elif type_settings == "profile_settings":
         template = text_config.get("profile_text", {}).get("profile_settings")
+        pt = text_config["profile_text"]
 
-        api_key = _format_key_secret(user["bybit_data"]["api_key"])
-        api_secret = _format_key_secret(user["bybit_data"]["api_secret"])
-        sum_for_trades = user["bybit_data"]["sum_for_trades"]
+        api_key = _format_key_secret(user["bybit_data"]["api_key"]) if user["bybit_data"]["api_key"] else "не указан"
+        api_secret = _format_key_secret(user["bybit_data"]["api_secret"]) if user["bybit_data"]["api_secret"] else "не указан"
+        sum_for_trades = user["bybit_data"]["sum_for_trades"] or "не указана"
         api_key_expiry_line = build_api_key_expiry_line(
             user.get("bybit_data") or {},
-            text_config["profile_text"]["profile_api_key_expiry"],
+            pt["profile_api_key_expiry"],
         )
+        steps = get_onboarding_steps(
+            user,
+            is_subscriber=bool((user.get("subscription_data") or {}).get("subscription")),
+            is_wait_confirm=bool((user.get("subscription_data") or {}).get("wait_sub_confirmation")),
+        )
+        if steps["ready"]:
+            settings_hint = ""
+        elif not steps["api_configured"]:
+            settings_hint = pt["settings_hint_api_first"]
+        else:
+            settings_hint = pt["settings_hint_sum"]
 
         return template.format(
-            api_key=api_key, 
-            api_secret=api_secret, 
+            api_key=api_key,
+            api_secret=api_secret,
             sum_for_trades=sum_for_trades,
             api_key_expiry_line=api_key_expiry_line,
+            settings_hint=settings_hint,
         )
 
 @router.message(Command("profile"))
@@ -313,8 +345,9 @@ async def cmd_profile(message: Message, user: dict[str, Any], lang: str):
     """Команда /profile — личный кабинет (только после выбора языка)."""
     user_id = message.from_user.id
     if not user.get("language_selected"):
+        cfg = await get_config_lang("ru")
         await message.answer(
-            "Выберите язык / Choose language:",
+            cfg["start_text"]["choose_language"],
             reply_markup=start_menu_kb(user_id).as_markup(),
         )
         return
@@ -337,6 +370,8 @@ async def profile_menu(callback: CallbackQuery, lang: str):
 @router.callback_query(F.data == "statistics")
 async def statistics(callback: CallbackQuery, lang: str):
     """Обработка нажатия на кнопку 'Статистика'"""
+    if await _reject_if_trading_locked(callback, lang):
+        return
 
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
@@ -373,23 +408,78 @@ async def settings_profile(callback: CallbackQuery, lang: str):
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню 'Настройки'")
 
+
+async def _start_sum_for_trades_input(
+    target: CallbackQuery | Message,
+    state: FSMContext,
+    lang: str,
+    *,
+    user: dict | None = None,
+) -> bool:
+    """Показывает экран ввода суммы сделки. Возвращает True, если ввод начат."""
+    user_id = target.from_user.id
+    if user is None:
+        user = await db.get_user_by_username_or_id(user_id)
+    text, max_usdt, unlimited, error_key = await build_sum_for_trades_prompt(
+        lang, user_id, user or {},
+    )
+    settings_kb = (await profile_settings_kb(user_id, lang)).as_markup()
+    reply_kb = (await back_to_profile_settings_kb(user_id, lang)).as_markup()
+
+    api_key, api_secret = extract_user_api_credentials(user or {})
+    if not api_key or not api_secret:
+        if isinstance(target, CallbackQuery):
+            await target.answer()
+            await safe_edit_message(target, text, reply_markup=settings_kb)
+        else:
+            await target.answer(text, reply_markup=settings_kb)
+        return False
+
+    if error_key is not None or max_usdt is None:
+        if isinstance(target, CallbackQuery):
+            await target.answer()
+            await safe_edit_message(target, text, reply_markup=reply_kb)
+        else:
+            await target.answer(text, reply_markup=reply_kb)
+        return False
+
+    await state.update_data(
+        recommended_sum_for_trades=max_usdt,
+        unlimited_trade_amount=unlimited,
+    )
+    await state.set_state(ProfileStates.edit_sum_for_trades)
+    if isinstance(target, CallbackQuery):
+        await target.answer()
+        await safe_edit_message(target, text, reply_markup=reply_kb)
+    else:
+        await target.answer(text, reply_markup=reply_kb)
+    return True
+
+
 async def _start_api_key_input(target: CallbackQuery | Message, state: FSMContext, lang: str) -> None:
     user_id = target.from_user.id
     text_config = await get_config_lang(lang)
-    text = text_config["profile_text"]["profile_settings_api_key"]
+    text = text_config["profile_text"]["profile_settings_api_key"].format(
+        account_mode=_api_account_mode_label(lang),
+    )
+    await state.update_data(new_api_key=None)
     await state.set_state(ProfileStates.edit_api_key)
+    reply_kb = (await back_to_profile_settings_kb(user_id, lang)).as_markup()
     if isinstance(target, CallbackQuery):
         await target.answer()
-        await safe_edit_message(
-            target,
-            text,
-            reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-        )
+        await safe_edit_message(target, text, reply_markup=reply_kb)
     else:
-        await target.answer(
-            text,
-            reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-        )
+        await target.answer(text, reply_markup=reply_kb)
+
+
+async def _restart_api_credentials_input(message: Message, state: FSMContext, lang: str) -> None:
+    """После ошибки проверки — объяснение и повторный ввод с шага 1 (API key)."""
+    text_config = await get_config_lang(lang)
+    account_mode = _api_account_mode_label(lang)
+    await message.answer(
+        text_config["profile_text"]["profile_settings_api_invalid"].format(account_mode=account_mode),
+    )
+    await _start_api_key_input(message, state, lang)
 
 
 @router.callback_query(F.data == "profile_settings_api_key_secret")
@@ -427,13 +517,20 @@ async def process_profile_edit_api_key(message: Message, state: FSMContext, lang
     """Пользователь вводит API key, затем просим API secret."""
     text_config = await get_config_lang(lang)
     api_key = message.text.strip()
-
-    text = text_config["profile_text"]["profile_settings_api_secret"]
+    if not api_key:
+        await message.answer(
+            text_config["profile_text"]["profile_settings_api_key"].format(
+                account_mode=_api_account_mode_label(lang),
+            ),
+        )
+        return
 
     await state.update_data(new_api_key=api_key)
     await state.set_state(ProfileStates.edit_api_secret)
     await message.answer(
-        text,
+        text_config["profile_text"]["profile_settings_api_secret"].format(
+            api_key_preview=_format_key_secret(api_key),
+        ),
         reply_markup=(await back_to_profile_settings_kb(message.from_user.id, lang)).as_markup(),
     )
 
@@ -446,8 +543,24 @@ async def process_profile_edit_api_secret(message: Message, state: FSMContext, l
     text_config = await get_config_lang(lang)
 
     data = await state.get_data()
-    api_key = data.get("new_api_key", "")
+    api_key = str(data.get("new_api_key") or "").strip()
     api_secret = message.text.strip()
+
+    if not api_key:
+        await _restart_api_credentials_input(message, state, lang)
+        return
+
+    user = await db.get_user_by_username_or_id(user_id)
+    if user is None:
+        await message.answer(text_config["admin_text"]["error_user_not_found"])
+        await state.clear()
+        return
+
+    candidate = user_with_api_credentials(user, api_key, api_secret)
+    max_usdt, _, error_key = await resolve_trade_amount_limit(candidate, user_id)
+    if error_key == "api_invalid":
+        await _restart_api_credentials_input(message, state, lang)
+        return
 
     try:
         await db.update_api_key(user_id, api_key)
@@ -464,6 +577,25 @@ async def process_profile_edit_api_secret(message: Message, state: FSMContext, l
 
     user = await refresh_user_api_key_expiry(user)
 
+    if error_key == "balance_zero":
+        await state.clear()
+        await message.answer(text_config["profile_text"]["profile_settings_sum_for_trades_balance_zero"])
+        await message.answer(
+            await _format_profile_text_by_template(user, text_config, "profile_settings"),
+            reply_markup=(await profile_settings_kb(user_id, lang)).as_markup(),
+        )
+        logger.info(f"Пользователь {user_id} ({username}) обновил API key/secret (нулевой баланс)")
+        return
+
+    bybit = user.get("bybit_data") or {}
+    if not _has_trade_sum(bybit) and max_usdt is not None:
+        await message.answer(
+            text_config["profile_text"]["profile_settings_api_saved_prompt_sum"],
+        )
+        if await _start_sum_for_trades_input(message, state, lang, user=user):
+            logger.info(f"Пользователь {user_id} ({username}) обновил API key/secret, переход к вводу суммы")
+            return
+
     await state.clear()
     await message.answer(
         await _format_profile_text_by_template(user, text_config, "profile_settings"),
@@ -472,44 +604,20 @@ async def process_profile_edit_api_secret(message: Message, state: FSMContext, l
     logger.info(f"Пользователь {user_id} ({username}) обновил API key/secret")
 
 
+@router.callback_query(F.data == "profile_settings_sum_locked")
+async def profile_settings_sum_locked(callback: CallbackQuery, lang: str):
+    """Сумма недоступна без API-ключа."""
+    text_config = await get_config_lang(lang)
+    await callback.answer(
+        text_config["profile_text"]["profile_settings_sum_for_trades_api_required"],
+        show_alert=True,
+    )
+
+
 @router.callback_query(F.data == "profile_settings_sum_for_trades")
 async def profile_settings_sum_for_trades(callback: CallbackQuery, state: FSMContext, lang: str):
     """Пользователь начинает изменение суммы сделки."""
-    user_id = callback.from_user.id
-    text_config = await get_config_lang(lang)
-    user = await db.get_user_by_username_or_id(user_id)
-    text, max_usdt, unlimited = await build_sum_for_trades_prompt(lang, user_id, user or {})
-
-    api_key, api_secret = extract_user_api_credentials(user or {})
-    if not api_key or not api_secret:
-        await callback.answer()
-        await safe_edit_message(
-            callback,
-            text,
-            reply_markup=(await profile_settings_kb(user_id, lang)).as_markup(),
-        )
-        return
-
-    if max_usdt is None:
-        await callback.answer()
-        await safe_edit_message(
-            callback,
-            text,
-            reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-        )
-        return
-
-    await state.update_data(
-        recommended_sum_for_trades=max_usdt,
-        unlimited_trade_amount=unlimited,
-    )
-    await state.set_state(ProfileStates.edit_sum_for_trades)
-    await callback.answer()
-    await safe_edit_message(
-        callback,
-        text,
-        reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-    )
+    await _start_sum_for_trades_input(callback, state, lang)
 
 
 @router.message(ProfileStates.edit_sum_for_trades, F.text)
@@ -526,10 +634,10 @@ async def process_profile_edit_sum_for_trades(message: Message, state: FSMContex
     try:
         entered_sum = float(sum_for_trades)
         if entered_sum <= 0:
-            await message.answer("Сумма сделки должна быть больше 0.")
+            await message.answer(text_config["profile_text"]["validation_sum_positive"])
             return
     except ValueError:
-        await message.answer("Введите число (например: 25 или 25.5).")
+        await message.answer(text_config["profile_text"]["validation_enter_number"])
         return
 
     if max_usdt is None:
@@ -537,12 +645,15 @@ async def process_profile_edit_sum_for_trades(message: Message, state: FSMContex
         max_usdt, unlimited, error_key = await resolve_trade_amount_limit(user or {}, user_id)
         if error_key == "api_missing":
             await message.answer(text_config["profile_text"]["profile_settings_sum_for_trades_api_required"])
+            await state.clear()
             return
-        if error_key in {"balance_zero", "fetch_error"} or max_usdt is None:
-            if error_key == "balance_zero":
-                await message.answer(text_config["profile_text"]["profile_settings_sum_for_trades_balance_zero"])
-            else:
-                await message.answer(text_config["profile_text"]["profile_settings_sum_for_trades_fallback"])
+        if error_key == "api_invalid":
+            await message.answer(text_config["profile_text"]["profile_settings_api_invalid"])
+            await state.clear()
+            return
+        if error_key == "balance_zero" or max_usdt is None:
+            await message.answer(text_config["profile_text"]["profile_settings_sum_for_trades_balance_zero"])
+            await state.clear()
             return
         await state.update_data(
             recommended_sum_for_trades=max_usdt,
@@ -603,25 +714,13 @@ async def profile_settings_sum_risk_confirm(callback: CallbackQuery, state: FSMC
 
     if not sum_for_trades:
         await callback.answer()
-        await safe_edit_message(
-            callback,
-            text_config["profile_text"]["profile_settings_sum_for_trades_fallback"],
-            reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-        )
-        await state.set_state(ProfileStates.edit_sum_for_trades)
+        await _start_sum_for_trades_input(callback, state, lang)
         return
 
     unlimited = bool(state_data.get("unlimited_trade_amount"))
     if not unlimited:
         await callback.answer()
-        user = await db.get_user_by_username_or_id(user_id)
-        text, _, _ = await build_sum_for_trades_prompt(lang, user_id, user or {})
-        await safe_edit_message(
-            callback,
-            text,
-            reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-        )
-        await state.set_state(ProfileStates.edit_sum_for_trades)
+        await _start_sum_for_trades_input(callback, state, lang)
         return
 
     try:
@@ -651,26 +750,14 @@ async def profile_settings_sum_risk_confirm(callback: CallbackQuery, state: FSMC
 @router.callback_query(F.data == "profile_settings_sum_risk_cancel")
 async def profile_settings_sum_risk_cancel(callback: CallbackQuery, state: FSMContext, lang: str):
     """Отмена рискованной суммы и повторный ввод."""
-    user_id = callback.from_user.id
-    user = await db.get_user_by_username_or_id(user_id)
-    text, max_usdt, unlimited = await build_sum_for_trades_prompt(lang, user_id, user or {})
-
-    await state.update_data(
-        recommended_sum_for_trades=max_usdt,
-        unlimited_trade_amount=unlimited,
-    )
-    await callback.answer()
-    await state.set_state(ProfileStates.edit_sum_for_trades)
-    await safe_edit_message(
-        callback,
-        text,
-        reply_markup=(await back_to_profile_settings_kb(user_id, lang)).as_markup(),
-    )
+    await _start_sum_for_trades_input(callback, state, lang)
 
 
 @router.callback_query(F.data == "trading_portfolio")
 async def trading_portfolio(callback: CallbackQuery, lang: str):
     """Показать futures-баланс пользователя."""
+    if await _reject_if_trading_locked(callback, lang):
+        return
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
     text_config = await get_config_lang(lang)
@@ -710,6 +797,8 @@ async def trading_portfolio(callback: CallbackQuery, lang: str):
 @router.callback_query(F.data == "trading")
 async def trading(callback: CallbackQuery, lang: str):
     """Меню торговли профиля."""
+    if await _reject_if_trading_locked(callback, lang):
+        return
     text_config = await get_config_lang(lang)
     await callback.answer()
     await safe_edit_message(
@@ -722,6 +811,8 @@ async def trading(callback: CallbackQuery, lang: str):
 @router.callback_query(F.data == "history_trades")
 async def history_trades(callback: CallbackQuery, lang: str):
     """Показать историю сделок пользователя."""
+    if await _reject_if_trading_locked(callback, lang):
+        return
     try:
         await callback.answer()
         await _render_history_trades_page(callback, lang, page=0)
@@ -784,6 +875,8 @@ async def history_trade_details(callback: CallbackQuery, callback_data: HistoryT
 @router.callback_query(F.data == "active_trades")
 async def active_trades(callback: CallbackQuery, lang: str):
     """Список активных сделок пользователя."""
+    if await _reject_if_trading_locked(callback, lang):
+        return
     text_config = await get_config_lang(lang)
     try:
         await callback.answer()
@@ -874,6 +967,8 @@ async def active_trade_stop(callback: CallbackQuery, lang: str):
 @router.callback_query(F.data == "profile_stop_all_trading")
 async def profile_stop_all_trading(callback: CallbackQuery, lang: str):
     """Остановка всей торговли пользователя."""
+    if await _reject_if_trading_locked(callback, lang):
+        return
     text_config = await get_config_lang(lang)
     user_id = callback.from_user.id
     try:

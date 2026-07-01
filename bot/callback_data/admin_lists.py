@@ -43,3 +43,19 @@ class ActiveTradeItemCb(CallbackData, prefix="atli"):
 
 class AdminOpenUserCb(CallbackData, prefix="aopu"):
     tg_id: int
+
+
+class AdminConfirmSubscriptionCb(CallbackData, prefix="acfs"):
+    tg_id: int
+
+
+class AdminCancelSubscriptionCb(CallbackData, prefix="accs"):
+    tg_id: int
+
+
+class AdminProlongSubscriptionCb(CallbackData, prefix="aprs"):
+    tg_id: int
+
+
+class AdminCancelProlongSubscriptionCb(CallbackData, prefix="acps"):
+    tg_id: int

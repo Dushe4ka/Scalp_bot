@@ -18,6 +18,7 @@ async def setup_bot_commands() -> None:
         BotCommand(command="start", description="Главное меню / Main menu"),
         BotCommand(command="main_menu", description="Главное меню / Main menu"),
         BotCommand(command="profile", description="Личный кабинет / Profile"),
+        BotCommand(command="help", description="Справка / Help"),
     ]
     await bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
 

@@ -4,6 +4,10 @@ from bot.callback_data.admin_lists import (
     ADMIN_LIST_PAGE_SIZE,
     ActiveTradeItemCb,
     ActiveTradesPageCb,
+    AdminCancelProlongSubscriptionCb,
+    AdminCancelSubscriptionCb,
+    AdminConfirmSubscriptionCb,
+    AdminProlongSubscriptionCb,
     HISTORY_TRADES_PAGE_SIZE,
     HistoryTradeItemCb,
     HistoryTradesPageCb,
@@ -42,111 +46,6 @@ def start_menu_kb(user_id: int) -> InlineKeyboardBuilder:
     kb = InlineKeyboardBuilder()
     kb.button(text="Русский", callback_data="russian_lang")
     kb.button(text="English", callback_data="english_lang")
-    kb.adjust(1)
-    return kb
-
-def russia_start_kb(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Русское меню кнопок после выбора языка (start)
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
-    kb.button(text="Личный кабинет", callback_data="profile_menu")
-    kb.button(text="Приобрести подписку", callback_data="subscription_buy")
-    kb.button(text="Назад", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-def russia_start_kb_wait_confirm_subscription(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Русское меню кнопок после выбора языка (start) без подписки
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
-    kb.button(text="Личный кабинет", callback_data="profile_menu")
-    kb.button(text="Назад", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-def russia_start_kb_with_subscription(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Русское меню кнопок после выбора языка (start) с подпиской
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Наш ТГ канал", url=URL_TGCHANNEL)
-    kb.button(text="Личный кабинет", callback_data="profile_menu")
-    kb.button(text="Продлить подписку", callback_data="prolong_subscription")
-    kb.button(text="Назад", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-def english_start_kb(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Английское меню кнопок после выбора языка (start)
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
-    kb.button(text="Profile", callback_data="profile_menu")
-    kb.button(text="Buy subscription", callback_data="subscription_buy")
-    kb.button(text="Back", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-def english_start_kb_wait_confirm_subscription(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Английское меню кнопок после выбора языка (start) без подписки
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
-    kb.button(text="Profile", callback_data="profile_menu")
-    kb.button(text="Back", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-def english_start_kb_with_subscription(user_id: int) -> InlineKeyboardBuilder:
-    """
-    Английское меню кнопок после выбора языка (start) с подпиской
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text="Our TG channel", url=URL_TGCHANNEL)
-    kb.button(text="Profile", callback_data="profile_menu")
-    kb.button(text="Prolong subscription", callback_data="prolong_subscription")
-    kb.button(text="Back", callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-async def greeting_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Меню кнопок после выбора языка (greeting)
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["subscription_buy"], callback_data="subscription_buy")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-async def greeting_kb_wait_confirm_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Меню кнопок после выбора языка (greeting) ожидания подтверждения подписки
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
-    kb.adjust(1)
-    return kb
-
-async def greeting_kb_with_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Меню кнопок после выбора языка (greeting) с подпиской
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["url_tg"], url=URL_TGCHANNEL)
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["personal_account"], callback_data="profile_menu")
-    kb.button(text=(await get_config_lang(lang))["start_btn"]["prolong_subscription"], callback_data="prolong_subscription")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="start_menu")
     kb.adjust(1)
     return kb
 
@@ -254,10 +153,40 @@ async def prolong_confirm_payment_kb(lang: str) -> InlineKeyboardBuilder:
 
 async def confirm_payment_success_kb(lang: str) -> InlineKeyboardBuilder:
     """
-    Кнопки перехода в профиль после оплаты подписки
+    Кнопки после успешной отправки заявки на оплату.
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.button(text=cfg["profile_btn"]["go_to_settings"], callback_data="settings_profile")
+    kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+
+async def payment_status_notify_kb(lang: str, message_key: str) -> InlineKeyboardBuilder | None:
+    """Кнопка к уведомлению пользователю о подтверждении/отклонении оплаты."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+
+    if message_key in ("payment_confirmed", "prolong_confirmed"):
+        kb.button(text=cfg["start_btn"]["personal_account"], callback_data="profile_menu")
+        kb.adjust(1)
+        return kb
+
+    if message_key in ("payment_rejected", "prolong_rejected"):
+        if not URL_TECH_SUPPORT:
+            return None
+        kb.button(text=cfg["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+        kb.adjust(1)
+        return kb
+
+    return None
+
+
+async def help_kb(lang: str) -> InlineKeyboardBuilder:
+    kb = InlineKeyboardBuilder()
+    cfg = await get_config_lang(lang)
+    kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
     kb.adjust(1)
     return kb
 
@@ -266,53 +195,39 @@ async def confirm_payment_success_kb(lang: str) -> InlineKeyboardBuilder:
 # -------------------------------------------------------------
 
 async def profile_menu_kb_without_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Кнопки в профиле без подписки
-    """
+    """Кнопки в профиле без подписки."""
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["subscription_buy"], callback_data="subscription_buy")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.button(text=cfg["profile_btn"]["subscription_buy"], callback_data="subscription_buy")
+    kb.button(text=cfg["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
     kb.adjust(1)
     return kb
 
-async def profile_menu_wait_sub_confirmation_kb_with_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Кнопки в профиле ожидания подтверждения подписки с подпиской
-    """
+
+async def profile_menu_wait_sub_confirmation_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """Профиль при ожидании подтверждения — только настройка API и поддержка."""
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["statistics"], callback_data="statistics")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["settings_profile"], callback_data="settings_profile")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading"], callback_data="trading")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading_portfolio"], callback_data="trading_portfolio")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["history_trades"], callback_data="history_trades")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.button(text=cfg["profile_btn"]["setup_profile_early"], callback_data="settings_profile")
+    kb.button(text=cfg["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
     kb.adjust(1)
     return kb
+
 
 async def profile_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Кнопки в профиле с подпиской без ожидания подтверждения подписки
-    """
+    """Кнопки в профиле с активной подпиской."""
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["statistics"], callback_data="statistics")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["settings_profile"], callback_data="settings_profile")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading"], callback_data="trading")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["trading_portfolio"], callback_data="trading_portfolio")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["history_trades"], callback_data="history_trades")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
-    kb.adjust(1)
-    return kb
-
-async def profile_menu_wait_sub_confirmation_kb_without_subscription(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Кнопки в профиле ожидания подтверждения подписки без подписки
-    """
-    kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
-    kb.adjust(1)
+    kb.button(text=cfg["profile_btn"]["settings_profile"], callback_data="settings_profile")
+    kb.button(text=cfg["profile_btn"]["statistics"], callback_data="statistics")
+    kb.button(text=cfg["profile_btn"]["trading"], callback_data="trading")
+    kb.button(text=cfg["profile_btn"]["trading_portfolio"], callback_data="trading_portfolio")
+    kb.button(text=cfg["profile_btn"]["history_trades"], callback_data="history_trades")
+    kb.button(text=cfg["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
+    kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
+    kb.adjust(2, 2, 1, 1)
     return kb
 
 async def profile_statistics_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
@@ -325,13 +240,22 @@ async def profile_statistics_kb(user_id: int, lang: str) -> InlineKeyboardBuilde
     return kb
     
 async def profile_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
-    """
-    Кнопки в настройках профиля
-    """
+    """Кнопки в настройках профиля."""
+    cfg = await get_config_lang(lang)
+    user = await db.get_user(user_id)
+    bybit = (user or {}).get("bybit_data") or {}
+    has_api = bool(str(bybit.get("api_key") or "").strip() and str(bybit.get("api_secret") or "").strip())
+
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["edit_api_key_secret"], callback_data="profile_settings_api_key_secret")
-    kb.button(text=(await get_config_lang(lang))["profile_btn"]["edit_sum_for_trades"], callback_data="profile_settings_sum_for_trades")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="profile_menu")
+    kb.button(text=cfg["profile_btn"]["edit_api_key_secret"], callback_data="profile_settings_api_key_secret")
+    if has_api:
+        kb.button(text=cfg["profile_btn"]["edit_sum_for_trades"], callback_data="profile_settings_sum_for_trades")
+    else:
+        kb.button(
+            text=cfg["profile_btn"]["edit_sum_for_trades_locked"],
+            callback_data="profile_settings_sum_locked",
+        )
+    kb.button(text=cfg["general"]["back"], callback_data="profile_menu")
     kb.adjust(1)
     return kb
 
@@ -430,7 +354,7 @@ async def profile_trading_kb(lang: str) -> InlineKeyboardBuilder:
     kb.button(text=cfg["profile_btn"]["active_trades"], callback_data="active_trades")
     kb.button(text=cfg["profile_btn"]["stop_all_trading"], callback_data="profile_stop_all_trading")
     kb.button(text=cfg["general"]["back"], callback_data="profile_menu")
-    kb.adjust(1)
+    kb.adjust(2, 1)
     return kb
 
 
@@ -483,12 +407,13 @@ async def admin_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в админ-панели
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["users_list"], callback_data="users_list")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["statistics_project"], callback_data="statistics_project")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["stop_all_trading"], callback_data="admin_stop_all_trading")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["server"], callback_data="server")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="greeting")
+    kb.button(text=cfg["admin_btn"]["users_list"], callback_data="users_list")
+    kb.button(text=cfg["admin_btn"]["statistics_project"], callback_data="statistics_project")
+    kb.button(text=cfg["admin_btn"]["stop_all_trading"], callback_data="admin_stop_all_trading")
+    kb.button(text=cfg["admin_btn"]["server"], callback_data="server")
+    kb.button(text=cfg["general"]["admin_to_main_menu"], callback_data="greeting")
     kb.adjust(1)
     return kb
 
@@ -647,6 +572,7 @@ async def subscribers_list_page_kb(
 async def positive_proccess_search_wait_confirm_user_kb(
     lang: str,
     *,
+    target_tg_id: int,
     from_wait_list: bool = False,
 ) -> InlineKeyboardBuilder:
     """
@@ -659,10 +585,16 @@ async def positive_proccess_search_wait_confirm_user_kb(
             text=cfg["admin_btn"]["back_to_user_list"],
             callback_data=WaitConfirmListPageCb(page=0),
         )
-    kb.button(text=cfg["admin_btn"]["confirm_subscription"], callback_data="confirm_subscription")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["cancel_subscription"], callback_data="cancel_subscription")
+    kb.button(
+        text=cfg["admin_btn"]["confirm_subscription"],
+        callback_data=AdminConfirmSubscriptionCb(tg_id=int(target_tg_id)),
+    )
+    kb.button(
+        text=cfg["admin_btn"]["cancel_subscription"],
+        callback_data=AdminCancelSubscriptionCb(tg_id=int(target_tg_id)),
+    )
     kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
-    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.button(text=cfg["admin_btn"]["back_to_wait_confirm_menu"], callback_data="wait_confirm")
     kb.adjust(1)
     return kb
 
@@ -697,14 +629,15 @@ async def positive_proccess_search_subscribers_kb(
                 text=cfg["admin_btn"]["toggle_unlimited_trade_add"],
                 callback_data="admin_toggle_unlimited_trade_amount",
             )
-    kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_subscribers_by_username_id")
-    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="subscribers")
+    kb.button(text=cfg["admin_btn"]["search_subscribers_again"], callback_data="search_subscribers_by_username_id")
+    kb.button(text=cfg["admin_btn"]["back_to_subscribers_menu"], callback_data="subscribers")
     kb.adjust(1)
     return kb
 
 async def positive_proccess_search_wait_confirm_user_kb_with_subscription(
     lang: str,
     *,
+    target_tg_id: int,
     from_wait_list: bool = False,
 ) -> InlineKeyboardBuilder:
     """
@@ -717,10 +650,16 @@ async def positive_proccess_search_wait_confirm_user_kb_with_subscription(
             text=cfg["admin_btn"]["back_to_user_list"],
             callback_data=WaitConfirmListPageCb(page=0),
         )
-    kb.button(text=cfg["admin_btn"]["prolong_subscription"], callback_data="admin_prolong_subscription")
-    kb.button(text=cfg["admin_btn"]["cancel_prolong_subscription"], callback_data="cancel_prolong_subscription")
+    kb.button(
+        text=cfg["admin_btn"]["prolong_subscription"],
+        callback_data=AdminProlongSubscriptionCb(tg_id=int(target_tg_id)),
+    )
+    kb.button(
+        text=cfg["admin_btn"]["cancel_prolong_subscription"],
+        callback_data=AdminCancelProlongSubscriptionCb(tg_id=int(target_tg_id)),
+    )
     kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
-    kb.button(text=cfg["admin_btn"]["back_menu_wait_confirm"], callback_data="wait_confirm")
+    kb.button(text=cfg["admin_btn"]["back_to_wait_confirm_menu"], callback_data="wait_confirm")
     kb.adjust(1)
     return kb
 
@@ -728,14 +667,15 @@ async def subscription_settings_kb(user_id: int, lang: str) -> InlineKeyboardBui
     """
     Кнопки в настройках подписки
     """
+    cfg = await get_config_lang(lang)
     subscription_status = await db.get_subscription_status(user_id)
     kb = InlineKeyboardBuilder()
     if subscription_status:
-        kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_subscription_false_mode"], callback_data="edit_subscription_mode")
+        kb.button(text=cfg["admin_btn"]["edit_subscription_false_mode"], callback_data="edit_subscription_mode")
     else:
-        kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_subscription_true_mode"], callback_data="edit_subscription_mode")
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_date_end_subs"], callback_data="edit_date_end_subs")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
+        kb.button(text=cfg["admin_btn"]["edit_subscription_true_mode"], callback_data="edit_subscription_mode")
+    kb.button(text=cfg["admin_btn"]["edit_date_end_subs"], callback_data="edit_date_end_subs")
+    kb.button(text=cfg["admin_btn"]["back_to_subscriber_card"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb
 
@@ -766,7 +706,7 @@ async def bybit_settings_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
         kb.button(text=cfg["admin_btn"]["edit_stop_trading_resume_mode"], callback_data="edit_stop_trades")
     else:
         kb.button(text=cfg["admin_btn"]["edit_stop_trading_stop_mode"], callback_data="edit_stop_trades")
-    kb.button(text=cfg["general"]["back"], callback_data="subscribers_settings_main")
+    kb.button(text=cfg["admin_btn"]["back_to_subscriber_card"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb
 
@@ -783,8 +723,8 @@ async def statistics_info_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """
     Кнопки в статистике подписчика
     """
+    cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
-    kb.button(text=(await get_config_lang(lang))["admin_btn"]["trading_list"], callback_data="trading_list")
-    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="subscribers_settings_main")
+    kb.button(text=cfg["admin_btn"]["back_to_subscriber_card"], callback_data="subscribers_settings_main")
     kb.adjust(1)
     return kb

@@ -48,12 +48,18 @@ async def safe_edit_message(
         )
         return True
     except TelegramBadRequest as e:
-        # Игнорируем ошибку "message is not modified"
         error_message = str(e).lower()
         if "message is not modified" in error_message:
             logger.debug(f"Сообщение не изменено (user_id: {user_id}, message_id: {target_message.message_id})")
             return False
-        # Для других ошибок логируем и пробрасываем дальше
+        if "there is no text in the message to edit" in error_message:
+            bot = target_message.bot
+            await bot.send_message(
+                chat_id=target_message.chat.id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+            return True
         logger.error(f"Ошибка редактирования сообщения: {e} (user_id: {user_id})")
         raise
     except Exception as e:
@@ -314,10 +320,15 @@ async def get_recommended_trade_amount(user: dict[str, Any]) -> float | None:
         return None
 
 
-async def notify_user_telegram(bot, tg_id: int, text: str) -> bool:
+async def notify_user_telegram(
+    bot,
+    tg_id: int,
+    text: str,
+    reply_markup=None,
+) -> bool:
     """Отправляет личное уведомление пользователю в Telegram."""
     try:
-        await bot.send_message(chat_id=int(tg_id), text=text)
+        await bot.send_message(chat_id=int(tg_id), text=text, reply_markup=reply_markup)
         return True
     except Exception as e:
         logger.error("Не удалось отправить уведомление tg_id=%s: %s", tg_id, e)

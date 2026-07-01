@@ -6,6 +6,9 @@ from aiogram.types import TelegramObject, Message, CallbackQuery
 from config import ADMIN_IDS
 
 
+from bot.languages._lang_func import get_config_lang
+
+
 class AdminOnlyMiddleware(BaseMiddleware):
     async def __call__(
         self,
@@ -21,11 +24,13 @@ class AdminOnlyMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if user_id not in ADMIN_IDS:
-            # Универсально отвечаем и для message, и для callback
+            lang = data.get("lang") or "ru"
+            text_config = await get_config_lang(lang)
+            denied = text_config["admin_text"]["access_denied"]
             if isinstance(event, Message):
-                await event.answer("Доступ запрещён")
+                await event.answer(denied)
             elif isinstance(event, CallbackQuery):
-                await event.answer("Доступ запрещён", show_alert=True)
+                await event.answer(denied, show_alert=True)
             return
 
         return await handler(event, data)
