@@ -33,6 +33,178 @@ git fetch origin
 git checkout feature/bot_nomultiuser
 ```
 
+### Клонирование на сервер ветки `feature/bot_multiuser`
+
+#### Вариант 1 — клон сразу нужной ветки (рекомендуется, быстрее)
+
+```bash
+git clone --branch feature/bot_multiuser --single-branch \
+  https://github.com/Dushe4ka/Scalp_bot.git Scalp_bot
+
+cd Scalp_bot
+git status
+git log -1 --oneline
+```
+
+#### Вариант 2 — полный клон + переключение
+
+```bash
+git clone https://github.com/Dushe4ka/Scalp_bot.git
+cd Scalp_bot
+git fetch origin feature/bot_multiuser
+git checkout feature/bot_multiuser
+git pull origin feature/bot_multiuser
+```
+
+#### Вариант 3 — через SSH (если на сервере настроен ключ)
+
+```bash
+git clone --branch feature/bot_multiuser --single-branch \
+  git@github.com:Dushe4ka/Scalp_bot.git Scalp_bot
+cd Scalp_bot
+```
+
+#### Вариант 4 — клон через токен (HTTPS, приватный репозиторий)
+
+```bash
+git clone --branch feature/bot_multiuser --single-branch \
+  https://<GITHUB_USERNAME>:<GITHUB_TOKEN>@github.com/Dushe4ka/Scalp_bot.git Scalp_bot
+cd Scalp_bot
+```
+
+> Замените `<GITHUB_USERNAME>` и `<GITHUB_TOKEN>` (Personal Access Token с правом `repo`).
+
+#### После клонирования (стандартные шаги)
+
+```bash
+cd Scalp_bot
+
+python3 -m venv myvenv
+source myvenv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+cp .env.example .env
+nano .env
+
+git branch --show-current
+git log -1 --oneline
+```
+
+В `.env` для VPS:
+
+```env
+LOCAL_SERVER_URL=http://127.0.0.1:8050
+SERVER_URL=https://ваш-url.trycloudflare.com
+```
+
+`LOCAL_SERVER_URL` — всегда локальный. `SERVER_URL` — публичный URL туннеля (для TradingView и уведомлений API).
+
+#### Обновление на сервере позже
+
+```bash
+cd Scalp_bot
+git fetch origin
+git pull origin feature/bot_multiuser
+source myvenv/bin/activate
+pip install -r requirements.txt   # если менялись зависимости
+pm2 restart scalp-api scalp-bot    # после pull
+```
+
+---
+
+## Деплой на сервер — шпаргалка запуска
+
+Краткий чеклист (7 процессов). Подробности PM2/screen — ниже в разделе мультиюзера.
+
+| # | Где | Сервис |
+|---|-----|--------|
+| 1 | PM2 | API (`scalp-api`) |
+| 2 | PM2 | Price feed (`scalp-feed`) |
+| 3 | screen | Engine worker 0 |
+| 4 | screen | Engine worker 1 |
+| 5 | screen | Router worker |
+| 6 | screen (опц.) | Celery Beat |
+| 7 | PM2 | Telegram-бот (`scalp-bot`) |
+| 8 | screen | **Cloudflare Tunnel** (webhook TradingView) |
+
+**PM2 — API**
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-api -- -m server_api.main
+```
+
+**PM2 — Price feed (центральная цена в Redis)**
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-feed -- -m services.market_price_feed
+```
+
+**screen — Engine worker 0**
+
+```bash
+CELERY_ENGINE_ID=0 celery -A celery_app.celery_config worker \
+  -Q trade_engine_0 -n engine0@%h --concurrency=1 -l info
+```
+
+**screen — Engine worker 1**
+
+```bash
+CELERY_ENGINE_ID=1 celery -A celery_app.celery_config worker \
+  -Q trade_engine_1 -n engine1@%h --concurrency=1 -l info
+```
+
+**screen — Router worker**
+
+```bash
+celery -A celery_app.celery_config worker \
+  -Q default,trade_user --concurrency=4 -l info
+```
+
+**screen — Celery Beat** (подписки и API-ключи, один процесс)
+
+```bash
+celery -A celery_app.celery_config beat -l info
+```
+
+**PM2 — Telegram-бот**
+
+```bash
+pm2 start ./myvenv/bin/python --name scalp-bot -- -m bot.main
+```
+
+### Cloudflare Tunnel (webhook TradingView)
+
+Quick tunnel для приёма сигналов с TradingView. Держите процесс **всегда запущенным** в отдельной screen-сессии.
+
+```bash
+screen -S cloudflare
+cloudflared tunnel --url http://127.0.0.1:8050 --protocol http2 --edge-ip-version 4
+# Ctrl+A, D — отсоединиться (туннель продолжит работать)
+```
+
+В логе появится URL вида `https://xxxx.trycloudflare.com`:
+
+1. Пропишите в `.env`: `SERVER_URL=https://xxxx.trycloudflare.com`
+2. `pm2 restart scalp-api`
+3. В TradingView укажите webhook: `https://xxxx.trycloudflare.com/short_3_limit`
+
+Проверка:
+
+```bash
+curl https://xxxx.trycloudflare.com/health
+curl -X POST "https://xxxx.trycloudflare.com/short_3_limit" -d "BTCUSDT"
+```
+
+> `--protocol http2 --edge-ip-version 4` стабильнее на VPS, где QUIC (UDP) обрывается.  
+> URL `trycloudflare.com` **меняется** при каждом новом запуске — для продакшена используйте [named tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/) с постоянным доменом.
+
+Вернуться к логам туннеля:
+
+```bash
+screen -r cloudflare
+```
+
 ---
 
 ## 1. Общая подготовка (обе ветки)
@@ -339,18 +511,27 @@ screen -S scalp-engine1 -X quit
 4. **screen** — **scalp-router**  
 5. **screen** — **scalp-beat** (проверка подписок)  
 6. `pm2 start` — **scalp-api**  
-7. `pm2 start` — **scalp-bot** (если нужен Telegram)
+7. `pm2 start` — **scalp-bot** (если нужен Telegram)  
+8. **screen** — **cloudflare** (туннель для TradingView, см. [шпаргалку](#деплой-на-сервер--шпаргалка-запуска))
 
-После смены `.env` (например `USE_DEMO`): `pm2 restart all` и перезапусти screen-сессии Celery.
+После смены `.env` (например `USE_DEMO` или `SERVER_URL`): `pm2 restart scalp-api` (и `scalp-bot` при необходимости); перезапусти screen-сессии Celery и cloudflared при смене туннеля.
 
 ---
 
 ## Запуск торговли (multi)
 
-Сигнал на символ (тело запроса — только тикер):
+Сигнал на символ (тело запроса — только тикер).
+
+**Локально (на сервере):**
 
 ```bash
 curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
+```
+
+**Через Cloudflare (как TradingView):**
+
+```bash
+curl -X POST "https://ваш-url.trycloudflare.com/short_3_limit" -d "BTCUSDT"
 ```
 
 В ответе: `queued` — сколько задач поставлено в Celery.
