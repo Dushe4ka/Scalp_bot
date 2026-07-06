@@ -23,6 +23,27 @@ def resolve_payment_qr_image() -> Path | None:
     return None
 
 
+async def replace_callback_message_with_text(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup,
+) -> None:
+    """Удалить текущее сообщение (в т.ч. фото с QR) и отправить текстовое."""
+    await callback.answer()
+    chat_id = callback.message.chat.id
+
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.debug("Не удалось удалить сообщение перед текстовым экраном: %s", e)
+
+    await callback.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=reply_markup,
+    )
+
+
 async def send_payment_info_screen(
     callback: CallbackQuery,
     text: str,

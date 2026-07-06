@@ -17,7 +17,7 @@ from bot.keyboards.inline_kb import (
 )
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message, send_info_payment_to_admin
-from bot.utils.payment_screen import send_payment_info_screen
+from bot.utils.payment_screen import send_payment_info_screen, replace_callback_message_with_text
 from database.users_repository import db
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
@@ -50,11 +50,11 @@ async def question(callback: CallbackQuery, lang: str):
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["question"]
-    
-    await safe_edit_message(
+
+    await replace_callback_message_with_text(
         callback,
         text,
-        reply_markup=(await question_kb(user_id, lang)).as_markup()
+        (await question_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню 'Что дальше?'")
 
@@ -69,11 +69,11 @@ async def paid(callback: CallbackQuery, state: FSMContext, lang: str):
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["paid"]
-    
-    await safe_edit_message(
+
+    await replace_callback_message_with_text(
         callback,
         text,
-        reply_markup=(await input_payment_id_kb(user_id, lang)).as_markup()
+        (await input_payment_id_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню ввода ID платежа")
 
@@ -176,11 +176,11 @@ async def prolong_question(callback: CallbackQuery, lang: str):
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["prolong_question"]
-    
-    await safe_edit_message(
+
+    await replace_callback_message_with_text(
         callback,
         text,
-        reply_markup=(await prolong_question_kb(user_id, lang)).as_markup()
+        (await prolong_question_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню 'Что дальше?' продления подписки")
 
@@ -195,11 +195,11 @@ async def prolong_paid(callback: CallbackQuery, state: FSMContext, lang: str):
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["prolong_paid"]
-    
-    await safe_edit_message(
+
+    await replace_callback_message_with_text(
         callback,
         text,
-        reply_markup=(await prolong_input_payment_id_kb(user_id, lang)).as_markup()
+        (await prolong_input_payment_id_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню ввода ID платежа продления подписки")
 
