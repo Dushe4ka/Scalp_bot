@@ -31,13 +31,31 @@ EN_CONFIGURATION = {
     "prolong_subscription": "🔄 Extend subscription",
   }, # -------------------------------------------------------------
   "subscription_text": {
-    "buy_info": f"Payment for 1 month = {SUBSCRIPTION_PRICE_USD}$\nWallet URL - {URL_PAYMENT}\nPayment type: TRC-20\nP.S. Payments are accepted only from exchange accounts.\nAfter payment, click the 'Paid' button and enter the payment ID.",
+    "buy_info": (
+        f"💳 Subscription — 1 month = {SUBSCRIPTION_PRICE_USD}$\n\n"
+        f"1️⃣ Send {SUBSCRIPTION_PRICE_USD}$ using either:\n"
+        f"   • wallet address:\n{URL_PAYMENT}\n"
+        "   • QR code in the image\n"
+        "   Network: TRC-20 (exchange account only)\n"
+        "2️⃣ Tap «✅ I paid»\n"
+        "3️⃣ Enter payment ID and confirm\n"
+        "4️⃣ Wait for admin activation (up to 24h)\n\n"
+        "You can set up your Bybit API key in profile while you wait."
+    ),
     "question": "After payment, click the 'Paid' button and enter the payment ID. Then the administration will verify your payment within 24 hours and activate your subscription.",
     "paid": "Great! Now you only need to enter the payment ID. Click the 'Enter payment ID' button and provide the payment ID.\nThen the administration will verify your payment within 24 hours and activate your subscription.",
     "input_payment_id": "Enter the payment ID in chat",
     "confirm_payment": "Is everything correct: {payment_id}",
     "confirm_payment_success": "Thank you! Your request has been sent.\n\nAn admin will verify payment within 24 hours. While you wait, you can set up your Bybit API key in profile settings.",
-    "prolong_subscription": f"🔄 Extend subscription\n\n1️⃣ Send {SUBSCRIPTION_PRICE_USD}$ to:\n{URL_PAYMENT}\n   Network: TRC-20\n2️⃣ Tap «✅ I paid»\n3️⃣ Enter payment ID and confirm",
+    "prolong_subscription": (
+        f"🔄 Extend subscription\n\n"
+        f"1️⃣ Send {SUBSCRIPTION_PRICE_USD}$ using either:\n"
+        f"   • wallet address:\n{URL_PAYMENT}\n"
+        "   • QR code in the image\n"
+        "   Network: TRC-20\n"
+        "2️⃣ Tap «✅ I paid»\n"
+        "3️⃣ Enter payment ID and confirm"
+    ),
     "prolong_paid": "Great! Tap «Enter payment ID» and send the transfer ID in chat.",
     "prolong_question": "📋 After extension payment:\n\n1. Tap «✅ I paid»\n2. Enter payment ID\n3. Confirm\n4. Admin will extend within 24 hours",
     "prolong_confirm_payment_success": "Thank you! Extension request sent.\n\nAdmin will verify within 24 hours.",

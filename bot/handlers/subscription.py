@@ -17,6 +17,7 @@ from bot.keyboards.inline_kb import (
 )
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message, send_info_payment_to_admin
+from bot.utils.payment_screen import send_payment_info_screen
 from database.users_repository import db
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
@@ -34,10 +35,10 @@ async def subscription_buy(callback: CallbackQuery, lang: str):
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["buy_info"]
 
-    await safe_edit_message(
+    await send_payment_info_screen(
         callback,
         text,
-        reply_markup=(await subscription_buy_kb(user_id, lang)).as_markup()
+        (await subscription_buy_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню приобретения подписки")
 
@@ -159,11 +160,11 @@ async def prolong_subscription(callback: CallbackQuery, lang: str):
     
     text_config = await get_config_lang(lang)
     text = text_config["subscription_text"]["prolong_subscription"]
-    
-    await safe_edit_message(
+
+    await send_payment_info_screen(
         callback,
         text,
-        reply_markup=(await prolong_subscription_kb(user_id, lang)).as_markup()
+        (await prolong_subscription_kb(user_id, lang)).as_markup(),
     )
     logger.info(f"Пользователь {user_id} ({username}) открыл меню продления подписки")
 

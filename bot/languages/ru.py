@@ -33,7 +33,9 @@ RU_CONFIGURATION = {
   "subscription_text": {
     "buy_info": (
         f"💳 Оплата подписки — 1 месяц = {SUBSCRIPTION_PRICE_USD}$\n\n"
-        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ на кошелёк:\n{URL_PAYMENT}\n"
+        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ одним из способов:\n"
+        f"   • по адресу кошелька:\n{URL_PAYMENT}\n"
+        "   • по QR-коду на изображении\n"
         "   Сеть: TRC-20 (только с биржевого аккаунта)\n"
         "2️⃣ Нажмите «✅ Я оплатил»\n"
         "3️⃣ Введите ID платежа и подтвердите\n"
@@ -63,7 +65,9 @@ RU_CONFIGURATION = {
     "prolong_confirm_payment_success": "Спасибо! Заявка на продление отправлена.\n\nАдминистратор проверит платёж в течение 24 часов.",
     "prolong_subscription": (
         f"🔄 Продление подписки\n\n"
-        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ на кошелёк:\n{URL_PAYMENT}\n"
+        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ одним из способов:\n"
+        f"   • по адресу кошелька:\n{URL_PAYMENT}\n"
+        "   • по QR-коду на изображении\n"
         "   Сеть: TRC-20\n"
         "2️⃣ Нажмите «✅ Я оплатил»\n"
         "3️⃣ Введите ID платежа и подтвердите"
