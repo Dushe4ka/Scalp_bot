@@ -15,11 +15,16 @@ from celery_app.config import REDIS_URL
 
 logger = logging.getLogger(__name__)
 
+_REFC_TTL_SECONDS = 8 * 60 * 60  # 8 часов — перекрывает любую сделку, но ключ не висит вечно
+
 _ACQUIRE_LUA = """
 local ref_key = KEYS[1]
+local ttl = tonumber(ARGV[3])
 local symbol = ARGV[1]
 local n = redis.call('INCR', ref_key)
 redis.call('SADD', ARGV[2], symbol)
+-- Обновляем TTL при каждом acquire, чтобы ключ не протух, пока есть активные сессии
+redis.call('EXPIRE', ref_key, ttl)
 return n
 """
 
@@ -37,6 +42,9 @@ if n == 0 then
   redis.call('SREM', symbols_set, symbol)
   return 0
 end
+-- Продлеваем TTL, пока есть оставшиеся сессии
+local ttl = tonumber(ARGV[3])
+redis.call('EXPIRE', ref_key, ttl)
 return n
 """
 
@@ -67,6 +75,7 @@ def acquire_symbol_price_session(symbol: str, *, redis_url: str | None = None) -
                 symbol_ref_key(sym),
                 sym,
                 KEY_FEED_REF_SYMBOLS,
+                str(_REFC_TTL_SECONDS),
             )
         )
         if n == 1:
@@ -99,6 +108,7 @@ def release_symbol_price_session(symbol: str, *, redis_url: str | None = None) -
                 symbol_ref_key(sym),
                 KEY_FEED_REF_SYMBOLS,
                 sym,
+                str(_REFC_TTL_SECONDS),
             )
         )
         if n == 0:
