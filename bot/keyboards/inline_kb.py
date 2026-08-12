@@ -608,6 +608,17 @@ async def positive_proccess_search_wait_confirm_user_kb(
         text=cfg["admin_btn"]["cancel_subscription"],
         callback_data=AdminCancelSubscriptionCb(tg_id=int(target_tg_id)),
     )
+    trial_used = await db.get_trial_used(int(target_tg_id))
+    if trial_used:
+        kb.button(
+            text=cfg["admin_btn"]["reset_trial"],
+            callback_data=AdminResetTrialCb(tg_id=int(target_tg_id)),
+        )
+    else:
+        kb.button(
+            text=cfg["admin_btn"]["grant_trial"],
+            callback_data=AdminGrantTrialCb(tg_id=int(target_tg_id)),
+        )
     kb.button(text=cfg["admin_btn"]["proccess_search_wair_confirm"], callback_data="search_by_username_id")
     kb.button(text=cfg["admin_btn"]["back_to_wait_confirm_menu"], callback_data="wait_confirm")
     kb.adjust(1)
@@ -649,11 +660,6 @@ async def positive_proccess_search_subscribers_kb(
             kb.button(
                 text=cfg["admin_btn"]["reset_trial"],
                 callback_data=AdminResetTrialCb(tg_id=int(target_tg_id)),
-            )
-        else:
-            kb.button(
-                text=cfg["admin_btn"]["grant_trial"],
-                callback_data=AdminGrantTrialCb(tg_id=int(target_tg_id)),
             )
     kb.button(text=cfg["admin_btn"]["search_subscribers_again"], callback_data="search_subscribers_by_username_id")
     kb.button(text=cfg["admin_btn"]["back_to_subscribers_menu"], callback_data="subscribers")

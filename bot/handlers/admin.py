@@ -797,15 +797,17 @@ async def admin_grant_trial(
         return
 
     await callback.answer(text_config["admin_text"]["trial_granted"], show_alert=True)
-    await safe_edit_message(
+    await _render_subscriber_card(
         callback,
-        _format_admin_subscribers_text_by_template(_user_doc_for_template(user), text_config, "main"),
-        reply_markup=(
-            await positive_proccess_search_subscribers_kb(lang, target_tg_id=target_tg_id)
-        ).as_markup(),
+        user,
+        state,
+        lang,
+        from_subscribers_list=await _subscribers_kb_from_list(state),
     )
+    user_lang = user.get("language") or "ru"
+    user_text_config = await get_config_lang(user_lang)
     await notify_user_telegram(
-        callback.bot, target_tg_id, text_config["subscription_text"]["trial_activated_success"]
+        callback.bot, target_tg_id, user_text_config["subscription_text"]["trial_activated_success"]
     )
     logger.info(
         "Админ %s (%s) вручную выдал пробный период пользователю %s",
@@ -840,12 +842,12 @@ async def admin_reset_trial(
         return
 
     await callback.answer(text_config["admin_text"]["trial_reset"], show_alert=True)
-    await safe_edit_message(
+    await _render_subscriber_card(
         callback,
-        _format_admin_subscribers_text_by_template(_user_doc_for_template(user), text_config, "main"),
-        reply_markup=(
-            await positive_proccess_search_subscribers_kb(lang, target_tg_id=target_tg_id)
-        ).as_markup(),
+        user,
+        state,
+        lang,
+        from_subscribers_list=await _subscribers_kb_from_list(state),
     )
     logger.info(
         "Админ %s (%s) сбросил флаг использования триала пользователю %s",

@@ -23,7 +23,14 @@ class StartTrialPeriodTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(granted)
         args, _ = self.repo._collection.update_one.call_args
         query, update = args
-        self.assertEqual(query, {"tg_id": 123, "subscription_data.trial_used": {"$ne": True}})
+        self.assertEqual(
+            query,
+            {
+                "tg_id": 123,
+                "subscription_data.trial_used": {"$ne": True},
+                "subscription_data.subscription": {"$ne": True},
+            },
+        )
         sets = update["$set"]
         self.assertEqual(sets["subscription_data.subscription"], True)
         self.assertEqual(sets["subscription_data.subscription_type"], "trial")
@@ -40,6 +47,34 @@ class StartTrialPeriodTests(unittest.IsolatedAsyncioTestCase):
         granted = await self.repo.start_trial_period(123)
 
         self.assertFalse(granted)
+
+    async def test_rejects_when_already_subscribed(self):
+        """
+        Гвард по subscription != True не даёт start_trial_period перезаписать
+        активную (например, платную) подписку триалом, даже если триал ещё не
+        использован. С точки зрения Mongo это тот же matched_count=0, что и при
+        уже использованном триале — тест не может отличить причину по одному
+        только возвращаемому значению, но он документирует второй сценарий
+        гварда и, вместе с проверкой формы query ниже, поймает регресс, если
+        фильтр случайно вернут к одному условию.
+        """
+        result = MagicMock()
+        result.matched_count = 0
+        self.repo._collection.update_one = AsyncMock(return_value=result)
+
+        granted = await self.repo.start_trial_period(123)
+
+        self.assertFalse(granted)
+        args, _ = self.repo._collection.update_one.call_args
+        query, _ = args
+        self.assertEqual(
+            query,
+            {
+                "tg_id": 123,
+                "subscription_data.trial_used": {"$ne": True},
+                "subscription_data.subscription": {"$ne": True},
+            },
+        )
 
 
 class GetTrialUsedTests(unittest.IsolatedAsyncioTestCase):

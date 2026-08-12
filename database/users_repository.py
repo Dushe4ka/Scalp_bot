@@ -346,7 +346,11 @@ class UsersRepository:
         end_date = now + timedelta(days=7)
         try:
             r = await self._collection.update_one(
-                {"tg_id": tg_id, "subscription_data.trial_used": {"$ne": True}},
+                {
+                    "tg_id": tg_id,
+                    "subscription_data.trial_used": {"$ne": True},
+                    "subscription_data.subscription": {"$ne": True},
+                },
                 {
                     "$set": {
                         "subscription_data.subscription": True,
