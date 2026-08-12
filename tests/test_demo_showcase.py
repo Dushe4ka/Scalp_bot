@@ -102,5 +102,23 @@ class DemoShowcaseTaskTests(unittest.TestCase):
         self.assertEqual(result, {"status": "skipped_duplicate", "symbol": "BTCUSDT"})
 
 
+class DemoShowcaseTriggerTests(unittest.TestCase):
+    @patch("demo_showcase.trigger.DEMO_SHOWCASE_ENABLED", False)
+    def test_disabled_does_not_queue(self):
+        from demo_showcase import trigger
+
+        with patch("demo_showcase.tasks.demo_showcase_trade") as mock_task:
+            trigger.maybe_trigger_demo_showcase("BTCUSDT")
+            mock_task.delay.assert_not_called()
+
+    @patch("demo_showcase.trigger.DEMO_SHOWCASE_ENABLED", True)
+    def test_enabled_queues_task_with_symbol(self):
+        from demo_showcase import trigger
+
+        with patch("demo_showcase.tasks.demo_showcase_trade") as mock_task:
+            trigger.maybe_trigger_demo_showcase("BTCUSDT")
+            mock_task.delay.assert_called_once_with(symbol="BTCUSDT")
+
+
 if __name__ == "__main__":
     unittest.main()
