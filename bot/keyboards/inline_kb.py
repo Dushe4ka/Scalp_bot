@@ -7,7 +7,9 @@ from bot.callback_data.admin_lists import (
     AdminCancelProlongSubscriptionCb,
     AdminCancelSubscriptionCb,
     AdminConfirmSubscriptionCb,
+    AdminGrantTrialCb,
     AdminProlongSubscriptionCb,
+    AdminResetTrialCb,
     HISTORY_TRADES_PAGE_SIZE,
     HistoryTradeItemCb,
     HistoryTradesPageCb,
@@ -16,6 +18,7 @@ from bot.callback_data.admin_lists import (
     WaitConfirmListPageCb,
     WaitConfirmUserCb,
 )
+from bot.utils.onboarding import is_trial_available
 from database.users_repository import db
 from database.app_settings_repository import app_settings_db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
@@ -199,8 +202,20 @@ async def profile_menu_kb_without_subscription(user_id: int, lang: str) -> Inlin
     cfg = await get_config_lang(lang)
     kb = InlineKeyboardBuilder()
     kb.button(text=cfg["profile_btn"]["subscription_buy"], callback_data="subscription_buy")
+    if await is_trial_available(user_id):
+        kb.button(text=cfg["profile_btn"]["trial_start"], callback_data="trial_start")
     kb.button(text=cfg["profile_btn"]["tech_support"], url=URL_TECH_SUPPORT)
     kb.button(text=cfg["general"]["main_menu"], callback_data="greeting")
+    kb.adjust(1)
+    return kb
+
+
+async def trial_start_kb(lang: str) -> InlineKeyboardBuilder:
+    """Подтверждение активации бесплатного пробного периода."""
+    cfg = await get_config_lang(lang)
+    kb = InlineKeyboardBuilder()
+    kb.button(text=cfg["subscription_btn"]["trial_confirm"], callback_data="trial_start_confirm")
+    kb.button(text=cfg["subscription_btn"]["trial_cancel"], callback_data="trial_start_cancel")
     kb.adjust(1)
     return kb
 
@@ -628,6 +643,17 @@ async def positive_proccess_search_subscribers_kb(
             kb.button(
                 text=cfg["admin_btn"]["toggle_unlimited_trade_add"],
                 callback_data="admin_toggle_unlimited_trade_amount",
+            )
+        trial_used = await db.get_trial_used(int(target_tg_id))
+        if trial_used:
+            kb.button(
+                text=cfg["admin_btn"]["reset_trial"],
+                callback_data=AdminResetTrialCb(tg_id=int(target_tg_id)),
+            )
+        else:
+            kb.button(
+                text=cfg["admin_btn"]["grant_trial"],
+                callback_data=AdminGrantTrialCb(tg_id=int(target_tg_id)),
             )
     kb.button(text=cfg["admin_btn"]["search_subscribers_again"], callback_data="search_subscribers_by_username_id")
     kb.button(text=cfg["admin_btn"]["back_to_subscribers_menu"], callback_data="subscribers")
