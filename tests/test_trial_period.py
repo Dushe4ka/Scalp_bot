@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from database.users_repository import UsersRepository
 
@@ -94,6 +94,42 @@ class ReminderKeyTests(unittest.TestCase):
         self.assertEqual(_reminder_key("1 мес", "reminder_3d"), "subscription_reminder_3d")
         self.assertEqual(_reminder_key(None, "expired"), "subscription_expired")
         self.assertEqual(_reminder_key("", "reminder_1d"), "subscription_reminder_1d")
+
+
+class IsTrialAvailableTests(unittest.IsolatedAsyncioTestCase):
+    async def test_available_for_new_user(self):
+        from bot.utils.onboarding import is_trial_available
+
+        with patch("database.users_repository.db.get_user", new=AsyncMock(return_value=None)):
+            self.assertTrue(await is_trial_available(123))
+
+    async def test_unavailable_when_subscriber(self):
+        from bot.utils.onboarding import is_trial_available
+
+        user = {"subscription_data": {"subscription": True, "wait_sub_confirmation": False, "trial_used": False}}
+        with patch("database.users_repository.db.get_user", new=AsyncMock(return_value=user)):
+            self.assertFalse(await is_trial_available(123))
+
+    async def test_unavailable_when_wait_confirmation(self):
+        from bot.utils.onboarding import is_trial_available
+
+        user = {"subscription_data": {"subscription": False, "wait_sub_confirmation": True, "trial_used": False}}
+        with patch("database.users_repository.db.get_user", new=AsyncMock(return_value=user)):
+            self.assertFalse(await is_trial_available(123))
+
+    async def test_unavailable_when_trial_used(self):
+        from bot.utils.onboarding import is_trial_available
+
+        user = {"subscription_data": {"subscription": False, "wait_sub_confirmation": False, "trial_used": True}}
+        with patch("database.users_repository.db.get_user", new=AsyncMock(return_value=user)):
+            self.assertFalse(await is_trial_available(123))
+
+    async def test_available_when_nothing_used_yet(self):
+        from bot.utils.onboarding import is_trial_available
+
+        user = {"subscription_data": {"subscription": False, "wait_sub_confirmation": False, "trial_used": False}}
+        with patch("database.users_repository.db.get_user", new=AsyncMock(return_value=user)):
+            self.assertTrue(await is_trial_available(123))
 
 
 if __name__ == "__main__":

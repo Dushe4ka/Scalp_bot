@@ -71,3 +71,21 @@ async def is_trading_features_unlocked(user_id: int) -> bool:
     is_subscriber = await db.is_subscriber(user_id)
     is_wait_confirm = await db.is_wait_sub_confirmation(user_id)
     return bool(is_subscriber and not is_wait_confirm)
+
+
+async def is_trial_available(tg_id: int) -> bool:
+    """
+    Доступен ли бесплатный пробный период: нет активной подписки, не в ожидании
+    подтверждения оплаты, ещё не использовал триал.
+    """
+    from database.users_repository import db
+
+    user = await db.get_user(tg_id)
+    if user is None:
+        return True
+    subscription_data = user.get("subscription_data") or {}
+    if subscription_data.get("subscription"):
+        return False
+    if subscription_data.get("wait_sub_confirmation"):
+        return False
+    return not subscription_data.get("trial_used")
