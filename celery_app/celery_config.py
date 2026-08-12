@@ -31,6 +31,7 @@ celery_app.conf.update(
         'celery_app.tasks.subscription_lifecycle',
         'celery_app.tasks.api_key_lifecycle',
         'celery_app.worker_signals',
+        'demo_showcase.tasks',
     ],
     task_serializer='json',
     result_serializer='json',
@@ -45,6 +46,7 @@ celery_app.conf.update(
     task_queues=(
         Queue("default"),
         Queue("trade_user"),
+        Queue("demo_showcase"),
     ) + _engine_queues,
     beat_schedule={
         "check-subscription-lifecycle": {
