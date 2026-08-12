@@ -44,6 +44,7 @@ def _default_document(tg_id: int, name: str, language: str = "ru") -> dict[str, 
         "subscription_data": {
             "subscription": False,
             "wait_sub_confirmation": False,
+            "trial_used": False,
             "current_amount": 0,
             "subscription_type": "",
             "payment_date": None,
@@ -323,6 +324,63 @@ class UsersRepository:
             return user["subscription_data"]["end_subscription_date"]
         logger.info("Пользователь tg_id=%s не найден", tg_id)
         raise UserNotFoundError(f"Пользователь с tg_id={tg_id} не найден")
+
+    async def get_trial_used(self, tg_id: int) -> bool:
+        """
+        Использовал ли пользователь бесплатный пробный период.
+        Старые документы без поля trial_used трактуются как 'не использован'.
+        """
+        user = await self.get_user(tg_id)
+        if user is not None:
+            return bool((user.get("subscription_data") or {}).get("trial_used"))
+        return False
+
+    async def start_trial_period(self, tg_id: int) -> bool:
+        """
+        Выдаёт бесплатный пробный период на 7 дней. Атомарно (условие trial_used != True —
+        в фильтре запроса, не read-then-write) — защита от гонки при двойном тапе/повторном
+        вызове. Возвращает False, если триал уже был использован (или пользователь не найден).
+        """
+        logger.info("Запрос на выдачу пробного периода tg_id=%s", tg_id)
+        now = datetime.now()
+        end_date = now + timedelta(days=7)
+        try:
+            r = await self._collection.update_one(
+                {"tg_id": tg_id, "subscription_data.trial_used": {"$ne": True}},
+                {
+                    "$set": {
+                        "subscription_data.subscription": True,
+                        "subscription_data.subscription_type": "trial",
+                        "subscription_data.trial_used": True,
+                        "subscription_data.payment_date": now,
+                        "subscription_data.end_subscription_date": end_date,
+                        "subscription_data.wait_sub_confirmation": False,
+                    }
+                },
+            )
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка start_trial_period tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при выдаче пробного периода: {e}") from e
+
+        granted = r.matched_count == 1
+        if granted:
+            logger.info("Пробный период выдан tg_id=%s, до %s", tg_id, end_date)
+        else:
+            logger.info("Пробный период НЕ выдан tg_id=%s (уже использован или не найден)", tg_id)
+        return granted
+
+    async def admin_reset_trial_used(self, tg_id: int) -> None:
+        """Сбрасывает флаг использования триала (повторный триал по решению админа/техподдержки)."""
+        logger.info("Сброс флага использования триала tg_id=%s", tg_id)
+        try:
+            r = await self._collection.update_one(
+                {"tg_id": tg_id},
+                {"$set": {"subscription_data.trial_used": False}},
+            )
+            self._ensure_user_exists(r, tg_id)
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка admin_reset_trial_used tg_id=%s: %s", tg_id, e, exc_info=True)
+            raise UsersRepositoryError(f"Ошибка при сбросе флага триала: {e}") from e
 
     async def update_subscription(self, tg_id: int, subscription: bool) -> None:
         if not isinstance(subscription, bool):
