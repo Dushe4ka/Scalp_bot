@@ -30,15 +30,23 @@ _LOCK_TTL_SECONDS = 60 * 60 * 4
 def _force_demo_isolation() -> None:
     """
     Форсирует demo-режим и подавляет запись в history_trades для ЭТОГО процесса.
-    Обязана вызываться до первого импорта short_bu_ts_limit_engine в этом процессе —
-    иначе module-level USE_DEMO (читается при импорте) останется False.
+
+    Патчит ДВЕ ссылки на history_trades_db: атрибут модуля database.history_trades_repository
+    (для кода, который импортирует модуль целиком) И одноимённое имя, уже связанное внутри
+    short_bu_ts_limit_engine через `from database.history_trades_repository import history_trades_db`
+    (это байндинг имени, а не чтение атрибута модуля — если пропатчить только атрибут модуля,
+    движок продолжит использовать старую, реальную history_trades_db). Порядок не важен для
+    USE_DEMO (читается в момент вызова, не при импорте), но для history_trades_db — важен: обе
+    ссылки должны быть переустановлены до того, как движок реально начнёт торговую сессию.
     """
     import database.history_trades_repository as history_trades_repository
 
-    history_trades_repository.history_trades_db = NoOpHistoryTradesDb()
+    stub = NoOpHistoryTradesDb()
+    history_trades_repository.history_trades_db = stub
 
     import bybit_logic.api_algorithms.short_bu_ts_limit_engine as engine_module
 
+    engine_module.history_trades_db = stub
     engine_module.USE_DEMO = True
 
 

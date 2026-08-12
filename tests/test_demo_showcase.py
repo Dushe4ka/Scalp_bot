@@ -24,13 +24,16 @@ class DemoShowcaseIsolationTests(unittest.TestCase):
 
         original_use_demo = engine_module.USE_DEMO
         original_history_db = history_trades_repository.history_trades_db
+        original_engine_history_db = engine_module.history_trades_db
         try:
             _force_demo_isolation()
             self.assertTrue(engine_module.USE_DEMO)
             self.assertIsInstance(history_trades_repository.history_trades_db, NoOpHistoryTradesDb)
+            self.assertIsInstance(engine_module.history_trades_db, NoOpHistoryTradesDb)
         finally:
             engine_module.USE_DEMO = original_use_demo
             history_trades_repository.history_trades_db = original_history_db
+            engine_module.history_trades_db = original_engine_history_db
 
 
 class DemoShowcaseTaskTests(unittest.TestCase):
