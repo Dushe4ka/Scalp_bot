@@ -104,6 +104,20 @@ class DemoShowcaseTaskTests(unittest.TestCase):
         mock_start_trading.assert_not_called()
         self.assertEqual(result, {"status": "skipped_duplicate", "symbol": "BTCUSDT"})
 
+    def test_refuses_when_running_in_engine_worker(self):
+        with patch("demo_showcase.tasks.os.getenv", return_value="0"), \
+             patch("demo_showcase.tasks._force_demo_isolation") as mock_isolation, \
+             patch(
+                 "bybit_logic.api_algorithms.short_bu_ts_limit_engine.start_trading"
+             ) as mock_start_trading:
+            from demo_showcase.tasks import demo_showcase_trade
+
+            result = demo_showcase_trade.run(symbol="btcusdt")
+
+        mock_isolation.assert_not_called()
+        mock_start_trading.assert_not_called()
+        self.assertEqual(result, {"status": "error", "symbol": "BTCUSDT", "error": "wrong_worker"})
+
 
 class DemoShowcaseTriggerTests(unittest.TestCase):
     @patch("demo_showcase.trigger.DEMO_SHOWCASE_ENABLED", False)

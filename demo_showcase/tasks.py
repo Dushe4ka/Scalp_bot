@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 import redis
@@ -59,6 +60,15 @@ def _force_demo_isolation() -> None:
 )
 def demo_showcase_trade(self, symbol: str) -> dict:
     """Демо-сделка для маркетинга — запускается по тому же сигналу, что реальные подписчики."""
+    engine_id = os.getenv("CELERY_ENGINE_ID")
+    if engine_id:
+        symbol = symbol.upper()
+        logger.error(
+            "demo_showcase_trade выполнен в engine-воркере (CELERY_ENGINE_ID=%s) — отказ, symbol=%s",
+            engine_id, symbol,
+        )
+        return {"status": "error", "symbol": symbol, "error": "wrong_worker"}
+
     _force_demo_isolation()
 
     symbol = symbol.upper()
