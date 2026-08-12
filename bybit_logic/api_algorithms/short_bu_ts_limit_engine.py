@@ -300,8 +300,9 @@ class TradeSession:
             return state_info
         merged = dict(exchange_info)
         merged.setdefault("symbol", state_info["symbol"])
-        if not merged.get("side"):
-            merged["side"] = state_info["side"]
+        # Bybit's get_closed_pnl "side" отдаёт сторону закрывающего ордера (для шорта — "Buy"),
+        # а не сторону позиции — всегда берём state_info (POSITION_SIDE), не exchange-значение.
+        merged["side"] = state_info["side"]
         if not float(merged.get("entry_price") or 0):
             merged["entry_price"] = state_info["entry_price"]
         if not float(merged.get("exit_price") or 0):
