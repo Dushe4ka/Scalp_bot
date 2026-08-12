@@ -727,6 +727,11 @@ DEMO_SHOWCASE_API_SECRET=<реальный demo API secret>
 (`DEMO_SHOWCASE_TG_ID`, `DEMO_SHOWCASE_NAME`, `DEMO_SHOWCASE_USDT_AMOUNT` можно оставить по
 умолчанию или переопределить сумму под конкретный скриншот.)
 
+**Перед включением:** убедиться, что `tg_id=490882969` НЕ является активным реальным trading
+candidate в Mongo `users` (нет реальных ключей, или `stop_trading: true`) — иначе demo- и
+real-сессии для этого tg_id столкнутся на общем ключе идемпотентности
+`trade_cmd:{tg_id}:{symbol}`.
+
 - [ ] **Step 3: Запустить новый воркер**
 
 В новой screen-сессии (по аналогии с `multi_scalp_engine_0/1`):
@@ -741,7 +746,7 @@ myvenv/bin/celery -A celery_app.celery_config worker -Q demo_showcase --concurre
 - [ ] **Step 4: Прогнать задачу вручную (без ожидания реального сигнала)**
 
 ```bash
-myvenv/bin/celery -A celery_app.celery_config call demo_showcase_trade --kwargs '{"symbol": "BTCUSDT"}'
+myvenv/bin/celery -A celery_app.celery_config call demo_showcase_trade --queue demo_showcase --kwargs '{"symbol": "BTCUSDT"}'
 ```
 
 Проверить в логах воркера (`screen -r multi_scalp_demo_showcase`):
