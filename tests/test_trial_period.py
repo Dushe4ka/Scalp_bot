@@ -80,5 +80,21 @@ class AdminResetTrialUsedTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(update, {"$set": {"subscription_data.trial_used": False}})
 
 
+class ReminderKeyTests(unittest.TestCase):
+    def test_trial_uses_trial_keys(self):
+        from celery_app.subscription_lifecycle_service import _reminder_key
+
+        self.assertEqual(_reminder_key("trial", "reminder_3d"), "trial_reminder_3d")
+        self.assertEqual(_reminder_key("trial", "reminder_1d"), "trial_reminder_1d")
+        self.assertEqual(_reminder_key("trial", "expired"), "trial_expired")
+
+    def test_non_trial_uses_subscription_keys(self):
+        from celery_app.subscription_lifecycle_service import _reminder_key
+
+        self.assertEqual(_reminder_key("1 мес", "reminder_3d"), "subscription_reminder_3d")
+        self.assertEqual(_reminder_key(None, "expired"), "subscription_expired")
+        self.assertEqual(_reminder_key("", "reminder_1d"), "subscription_reminder_1d")
+
+
 if __name__ == "__main__":
     unittest.main()

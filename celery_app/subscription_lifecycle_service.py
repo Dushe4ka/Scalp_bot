@@ -75,6 +75,12 @@ def _message_for_user(language: str | None, key: str, *, end_date: datetime) -> 
     return template.format(end_date=_format_end_date(end_date))
 
 
+def _reminder_key(subscription_type: str | None, suffix: str) -> str:
+    """suffix: 'reminder_3d' | 'reminder_1d' | 'expired'. trial -> trial_*, иначе subscription_*."""
+    prefix = "trial" if (subscription_type or "").strip() == "trial" else "subscription"
+    return f"{prefix}_{suffix}"
+
+
 def _send_user_notification(tg_id: int, text: str) -> bool:
     from celery_app.tasks.notifications import send_notification_to_user_task
 
@@ -113,12 +119,15 @@ def run_subscription_lifecycle_check(now: datetime | None = None) -> dict[str, i
             continue
 
         language = user.get("language")
+        sub_type = sub.get("subscription_type")
         days_left = _days_until_end(end_date, now)
 
         try:
             if days_left <= 0:
                 if not _same_end_moment(sub.get(_NOTIFY_EXPIRED), end_date):
-                    text = _message_for_user(language, "subscription_expired", end_date=end_date)
+                    text = _message_for_user(
+                        language, _reminder_key(sub_type, "expired"), end_date=end_date
+                    )
                     if _send_user_notification(tg_id, text):
                         subscription_lifecycle_db.mark_notification_sent(
                             tg_id, _NOTIFY_EXPIRED, end_date
@@ -133,14 +142,18 @@ def run_subscription_lifecycle_check(now: datetime | None = None) -> dict[str, i
                 continue
 
             if days_left == 3 and not _same_end_moment(sub.get(_NOTIFY_3D), end_date):
-                text = _message_for_user(language, "subscription_reminder_3d", end_date=end_date)
+                text = _message_for_user(
+                    language, _reminder_key(sub_type, "reminder_3d"), end_date=end_date
+                )
                 if _send_user_notification(tg_id, text):
                     subscription_lifecycle_db.mark_notification_sent(tg_id, _NOTIFY_3D, end_date)
                     stats["reminder_3d"] += 1
                 continue
 
             if days_left == 1 and not _same_end_moment(sub.get(_NOTIFY_1D), end_date):
-                text = _message_for_user(language, "subscription_reminder_1d", end_date=end_date)
+                text = _message_for_user(
+                    language, _reminder_key(sub_type, "reminder_1d"), end_date=end_date
+                )
                 if _send_user_notification(tg_id, text):
                     subscription_lifecycle_db.mark_notification_sent(tg_id, _NOTIFY_1D, end_date)
                     stats["reminder_1d"] += 1
