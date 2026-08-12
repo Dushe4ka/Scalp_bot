@@ -31,7 +31,11 @@ async def short_3_limit_endpoint(request: Request):
 
         if not symbol:
             raise HTTPException(status_code=400, detail="Символ не может быть пустым")
-        
+
+        from demo_showcase.trigger import maybe_trigger_demo_showcase
+
+        maybe_trigger_demo_showcase(symbol)
+
         users = await db.list_trading_candidates()
         skipped_no_keys = 0
         skipped_stop_trading = 0
