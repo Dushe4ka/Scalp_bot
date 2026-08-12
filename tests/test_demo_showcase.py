@@ -118,6 +118,35 @@ class DemoShowcaseTaskTests(unittest.TestCase):
         mock_start_trading.assert_not_called()
         self.assertEqual(result, {"status": "error", "symbol": "BTCUSDT", "error": "wrong_worker"})
 
+    def test_audit_failure_does_not_fail_started_trade(self):
+        fake_redis_client = MagicMock()
+        fake_lock = MagicMock()
+        fake_lock.acquire.return_value = True
+        fake_redis_client.lock.return_value = fake_lock
+
+        with patch("demo_showcase.tasks.DEMO_SHOWCASE_API_KEY", "demo_key"), \
+             patch("demo_showcase.tasks.DEMO_SHOWCASE_API_SECRET", "demo_secret"), \
+             patch("demo_showcase.tasks.DEMO_SHOWCASE_TG_ID", 490882969), \
+             patch("demo_showcase.tasks.DEMO_SHOWCASE_NAME", "demo_showcase"), \
+             patch("demo_showcase.tasks.DEMO_SHOWCASE_USDT_AMOUNT", 5000.0), \
+             patch("demo_showcase.tasks._force_demo_isolation") as mock_isolation, \
+             patch("demo_showcase.tasks.redis.Redis.from_url", return_value=fake_redis_client), \
+             patch("demo_showcase.tasks.demo_showcase_trades_db") as mock_audit_db, \
+             patch(
+                 "bybit_logic.api_algorithms.short_bu_ts_limit_engine.start_trading",
+                 return_value="490882969:BTCUSDT:abc123",
+             ) as mock_start_trading:
+            mock_audit_db.insert_trade.side_effect = Exception("mongo down")
+            from demo_showcase.tasks import demo_showcase_trade
+
+            result = demo_showcase_trade.run(symbol="btcusdt")
+
+        mock_isolation.assert_called_once()
+        mock_start_trading.assert_called_once()
+        mock_audit_db.insert_trade.assert_called_once()
+        fake_lock.release.assert_called_once()
+        self.assertEqual(result, {"status": "started", "symbol": "BTCUSDT", "trade_id": "490882969:BTCUSDT:abc123"})
+
 
 class DemoShowcaseTriggerTests(unittest.TestCase):
     @patch("demo_showcase.trigger.DEMO_SHOWCASE_ENABLED", False)

@@ -104,14 +104,18 @@ def demo_showcase_trade(self, symbol: str) -> dict:
         except Exception:
             pass
 
-    demo_showcase_trades_db.insert_trade(
-        {
-            "trade_id": trade_id,
-            "symbol": symbol,
-            "tg_id": DEMO_SHOWCASE_TG_ID,
-            "sum_for_trades": DEMO_SHOWCASE_USDT_AMOUNT,
-            "created_at": datetime.utcnow(),
-        }
-    )
+    try:
+        demo_showcase_trades_db.insert_trade(
+            {
+                "trade_id": trade_id,
+                "symbol": symbol,
+                "tg_id": DEMO_SHOWCASE_TG_ID,
+                "sum_for_trades": DEMO_SHOWCASE_USDT_AMOUNT,
+                "created_at": datetime.utcnow(),
+            }
+        )
+    except Exception as audit_err:
+        logger.error("Аудит demo_showcase_trades не записан: %s", audit_err, exc_info=True)
+
     logger.info("demo_showcase_trade запущена: trade_id=%s symbol=%s", trade_id, symbol)
     return {"status": "started", "symbol": symbol, "trade_id": trade_id}
