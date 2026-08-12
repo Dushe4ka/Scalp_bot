@@ -323,7 +323,10 @@ class TradeSession:
         exit_price = float(close_info.get("exit_price") or 0)
 
         if int(self.state.tg_id) in COMPACT_NOTIFY_TG_IDS:
-            change_pct = _price_change_percent(entry_price, exit_price, close_info.get("side") or POSITION_SIDE)
+            # Bybit's get_closed_pnl "side" отдаёт сторону закрывающего ордера (для шорта — "Buy"),
+            # а не сторону позиции — доверять ей нельзя. Этот движок всегда торгует в одну сторону
+            # (POSITION_SIDE из .env), поэтому берём её напрямую, а не close_info.get("side").
+            change_pct = _price_change_percent(entry_price, exit_price, POSITION_SIDE)
             pct_sign = "+" if change_pct >= 0 else ""
             result_line = f"📈 Итог: {pct_sign}{change_pct:.2f}%"
         else:
