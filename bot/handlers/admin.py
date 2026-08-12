@@ -37,8 +37,10 @@ from bot.callback_data.admin_lists import (
     AdminOpenUserCb,
     AdminConfirmSubscriptionCb,
     AdminCancelSubscriptionCb,
+    AdminGrantTrialCb,
     AdminProlongSubscriptionCb,
     AdminCancelProlongSubscriptionCb,
+    AdminResetTrialCb,
     SubscribersListPageCb,
     SubscribersUserCb,
 )
@@ -764,6 +766,96 @@ async def cancel_subscription(
     )
     await _notify_user_payment_status(callback.bot, user, "payment_rejected")
     logger.info("Админ %s (%s) отклонил подписку пользователю %s", user_id, username, target_tg_id)
+
+
+@router.callback_query(AdminGrantTrialCb.filter())
+async def admin_grant_trial(
+    callback: CallbackQuery,
+    callback_data: AdminGrantTrialCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Админ выдаёт пробный период вручную (например, по просьбе в техподдержку)."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
+
+    try:
+        granted = await db.start_trial_period(target_tg_id)
+    except UsersRepositoryError as e:
+        await callback.answer(f"Не удалось выдать триал: {e}", show_alert=True)
+        return
+
+    if not granted:
+        await callback.answer(text_config["admin_text"]["trial_already_used"], show_alert=True)
+        return
+
+    user = await db.get_user(target_tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    await callback.answer(text_config["admin_text"]["trial_granted"], show_alert=True)
+    await _render_subscriber_card(
+        callback,
+        user,
+        state,
+        lang,
+        from_subscribers_list=await _subscribers_kb_from_list(state),
+    )
+    user_lang = user.get("language") or "ru"
+    user_text_config = await get_config_lang(user_lang)
+    await notify_user_telegram(
+        callback.bot, target_tg_id, user_text_config["subscription_text"]["trial_activated_success"]
+    )
+    logger.info(
+        "Админ %s (%s) вручную выдал пробный период пользователю %s",
+        admin_user_id,
+        admin_username,
+        target_tg_id,
+    )
+
+
+@router.callback_query(AdminResetTrialCb.filter())
+async def admin_reset_trial(
+    callback: CallbackQuery,
+    callback_data: AdminResetTrialCb,
+    state: FSMContext,
+    lang: str,
+):
+    """Админ сбрасывает флаг использования триала (повторный триал по просьбе в техподдержку)."""
+    admin_user_id = callback.from_user.id
+    admin_username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+    target_tg_id = int(callback_data.tg_id)
+
+    try:
+        await db.admin_reset_trial_used(target_tg_id)
+    except (ValidationError, UsersRepositoryError) as e:
+        await callback.answer(f"Не удалось сбросить флаг триала: {e}", show_alert=True)
+        return
+
+    user = await db.get_user(target_tg_id)
+    if user is None:
+        await callback.answer(text_config["admin_text"]["error_user_not_found"], show_alert=True)
+        return
+
+    await callback.answer(text_config["admin_text"]["trial_reset"], show_alert=True)
+    await _render_subscriber_card(
+        callback,
+        user,
+        state,
+        lang,
+        from_subscribers_list=await _subscribers_kb_from_list(state),
+    )
+    logger.info(
+        "Админ %s (%s) сбросил флаг использования триала пользователю %s",
+        admin_user_id,
+        admin_username,
+        target_tg_id,
+    )
+
 
 # -------------------------------------------------------------
 # Подписчики

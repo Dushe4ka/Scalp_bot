@@ -13,11 +13,14 @@ from bot.keyboards.inline_kb import (
     prolong_input_payment_id_kb,
     prolong_input_payment_id_back_kb,
     prolong_confirm_payment_kb,
+    profile_menu_kb_without_subscription,
+    trial_start_kb,
 
 )
 from logger_config import setup_logger
 from bot.utils.helpers import safe_edit_message, send_info_payment_to_admin
 from bot.utils.payment_screen import send_payment_info_screen, replace_callback_message_with_text
+from bot.utils.profile_menu import build_profile_menu_view
 from database.users_repository import db
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
@@ -254,3 +257,52 @@ async def prolong_confirm_payment(callback: CallbackQuery, state: FSMContext, la
         reply_markup=(await confirm_payment_success_kb(lang)).as_markup()
     )
     logger.info(f"Пользователь {user_id} ({username}) подтвердил платеж и отправил ID платежа администратору продления подписки")
+
+
+@router.callback_query(F.data == "trial_start")
+async def trial_start(callback: CallbackQuery, lang: str):
+    """Экран подтверждения активации бесплатного пробного периода."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+    text = text_config["subscription_text"]["trial_start_confirm"]
+
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await trial_start_kb(lang)).as_markup(),
+    )
+    logger.info(f"Пользователь {user_id} ({username}) открыл подтверждение пробного периода")
+
+
+@router.callback_query(F.data == "trial_start_confirm")
+async def trial_start_confirm(callback: CallbackQuery, lang: str):
+    """Активация бесплатного пробного периода (self-service, без участия админа)."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    granted = await db.start_trial_period(user_id)
+    if not granted:
+        await callback.answer()
+        await safe_edit_message(
+            callback,
+            text_config["subscription_text"]["trial_already_used"],
+            reply_markup=(await profile_menu_kb_without_subscription(user_id, lang)).as_markup(),
+        )
+        logger.info(f"Пользователь {user_id} ({username}) повторно запросил уже использованный триал")
+        return
+
+    await callback.answer()
+    text, markup = await build_profile_menu_view(user_id, lang)
+    await safe_edit_message(callback, text, reply_markup=markup)
+    logger.info(f"Пользователь {user_id} ({username}) активировал бесплатный пробный период")
+
+
+@router.callback_query(F.data == "trial_start_cancel")
+async def trial_start_cancel(callback: CallbackQuery, lang: str):
+    """Отмена активации пробного периода — назад в профиль."""
+    user_id = callback.from_user.id
+    text, markup = await build_profile_menu_view(user_id, lang)
+    await safe_edit_message(callback, text, reply_markup=markup)

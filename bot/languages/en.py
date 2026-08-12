@@ -29,6 +29,7 @@ EN_CONFIGURATION = {
     "onboarding_setup": "⚙️ Setup",
     "subscription_buy": "💳 Buy subscription",
     "prolong_subscription": "🔄 Extend subscription",
+    "trial_start": "🎁 Try free for 7 days",
   }, # -------------------------------------------------------------
   "subscription_text": {
     "buy_info": (
@@ -74,6 +75,27 @@ EN_CONFIGURATION = {
         "Your subscription has expired ({end_date}) and has been deactivated.\n"
         "Renew or purchase a subscription in the bot to continue."
     ),
+    "trial_start_confirm": (
+        "🎁 Activate the free 7-day trial?\n\n"
+        "Full trading access, same as a subscription. Available once only."
+    ),
+    "trial_activated_success": (
+        "🎉 Trial activated! You have 7 days of full access — "
+        "set up your Bybit API key and trade amount to start trading."
+    ),
+    "trial_already_used": "You have already used the free trial. Subscribe to continue.",
+    "trial_reminder_3d": (
+        "⏳ Your free trial ends in 3 days ({end_date}) — "
+        "subscribe to keep access."
+    ),
+    "trial_reminder_1d": (
+        "⏳ Your free trial ends in 1 day ({end_date}) — "
+        "subscribe to keep access."
+    ),
+    "trial_expired": (
+        "⌛️ Your free trial has ended ({end_date}). "
+        "Subscribe to keep using the algorithm."
+    ),
     "payment_confirmed": "✅ Your payment has been confirmed! Your subscription is active.",
     "payment_rejected": "❌ Payment was not confirmed. Contact support if you have questions.",
     "prolong_confirmed": "✅ Subscription extension confirmed!",
@@ -85,6 +107,8 @@ EN_CONFIGURATION = {
     "input_payment_id": "📝 Enter payment ID",
     "confirm_payment": "✅ Correct",
     "reject_payment": "✏️ Fix ID",
+    "trial_confirm": "✅ Yes, activate",
+    "trial_cancel": "❌ Cancel",
   }, # -------------------------------------------------------------
   "profile_text": {
     "profile_menu": "My profile 👤\n\nSubscription date: {payment_date}\nType: {subscription_type}\nTrade amount: {sum_for_trades} USDT\nBybit API key: {api_key}\n{api_key_expiry_line}\n\n{onboarding_checklist}",
@@ -211,6 +235,7 @@ EN_CONFIGURATION = {
   },
   "profile_btn": {
     "subscription_buy": "💳 Buy subscription",
+    "trial_start": "🎁 Try free for 7 days",
     "tech_support": "💬 Support",
     "statistics": "📊 Statistics",
     "settings_profile": "⚙️ Settings",
@@ -307,6 +332,9 @@ EN_CONFIGURATION = {
     "trade_amount_limit_standard": "standard (per service rules)",
     "toggle_unlimited_trade_added": "User can set trade amount above the limit",
     "toggle_unlimited_trade_removed": "Standard trade amount limit restored for user",
+    "trial_granted": "🎁 Trial granted.",
+    "trial_already_used": "User has already used the trial.",
+    "trial_reset": "♻️ Trial usage flag reset.",
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Users 👥",
@@ -347,6 +375,8 @@ EN_CONFIGURATION = {
     "trading_list": "Trades list",
     "toggle_unlimited_trade_add": "🔓 Allow amount above limit",
     "toggle_unlimited_trade_remove": "🔒 Restore amount limit",
+    "grant_trial": "🎁 Grant trial manually",
+    "reset_trial": "♻️ Reset trial usage flag",
   }, # -------------------------------------------------------------
   "general": {
     "back": "⬅️ Back",

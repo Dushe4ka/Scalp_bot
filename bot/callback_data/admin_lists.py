@@ -59,3 +59,11 @@ class AdminProlongSubscriptionCb(CallbackData, prefix="aprs"):
 
 class AdminCancelProlongSubscriptionCb(CallbackData, prefix="acps"):
     tg_id: int
+
+
+class AdminGrantTrialCb(CallbackData, prefix="agtr"):
+    tg_id: int
+
+
+class AdminResetTrialCb(CallbackData, prefix="artr"):
+    tg_id: int
