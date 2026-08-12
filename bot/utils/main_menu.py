@@ -5,7 +5,7 @@ from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.languages._lang_func import get_config_lang
-from bot.utils.onboarding import build_onboarding_checklist
+from bot.utils.onboarding import build_onboarding_checklist, is_trial_available
 from config import URL_TGCHANNEL, ADMIN_IDS
 from database.users_repository import db
 
@@ -29,6 +29,8 @@ async def build_main_menu_keyboard(user_id: int, lang: str) -> InlineKeyboardMar
         kb.button(text=cfg["start_btn"]["prolong_subscription"], callback_data="prolong_subscription")
     elif not wait_confirm:
         kb.button(text=cfg["start_btn"]["subscription_buy"], callback_data="subscription_buy")
+        if await is_trial_available(user_id):
+            kb.button(text=cfg["start_btn"]["trial_start"], callback_data="trial_start")
 
     if int(user_id) in ADMIN_IDS:
         kb.button(text=cfg["general"]["admin_panel"], callback_data="admin_menu")
