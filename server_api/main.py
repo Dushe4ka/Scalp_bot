@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from server_api.routes import health, monitoring, trading, account
 from logger_config import setup_logger
@@ -7,6 +9,12 @@ from config import SERVER_URL
 
 
 logger = setup_logger(__name__)
+
+# reload=True запускает StatReload, который поллит mtime каждого файла в рабочей
+# директории (включая myvenv/ — тысячи файлов) несколько раз в секунду — на проде
+# это давало ~44% постоянной нагрузки CPU без единого реального запроса. Нужен
+# только для локальной разработки, поэтому по умолчанию выключен.
+UVICORN_RELOAD = os.getenv("UVICORN_RELOAD", "false").strip().lower() in ("true", "1", "yes")
 
 # Создаем FastAPI приложение
 app = FastAPI(
@@ -47,6 +55,6 @@ if __name__ == "__main__":
         "server_api.main:app",
         host="127.0.0.1",
         port=8050,
-        reload=True
+        reload=UVICORN_RELOAD
     )
     
