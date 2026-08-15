@@ -28,7 +28,7 @@ from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
 from celery_app.trade_idempotency import TradeIdempotencyStore
 from celery_app.tasks.notifications import send_notification_to_user_task
-from config import COMPACT_NOTIFY_TG_IDS, USE_DEMO as USE_DEMO_FROM_ENV
+from config import USE_DEMO as USE_DEMO_FROM_ENV
 from database.history_trades_repository import build_trade_doc, history_trades_db
 from logger_config import setup_logger
 
@@ -323,15 +323,12 @@ class TradeSession:
         entry_price = float(close_info.get("entry_price") or 0)
         exit_price = float(close_info.get("exit_price") or 0)
 
-        if int(self.state.tg_id) in COMPACT_NOTIFY_TG_IDS:
-            # Bybit's get_closed_pnl "side" отдаёт сторону закрывающего ордера (для шорта — "Buy"),
-            # а не сторону позиции — доверять ей нельзя. Этот движок всегда торгует в одну сторону
-            # (POSITION_SIDE из .env), поэтому берём её напрямую, а не close_info.get("side").
-            change_pct = _price_change_percent(entry_price, exit_price, POSITION_SIDE)
-            pct_sign = "+" if change_pct >= 0 else ""
-            result_line = f"📈 Итог: {pct_sign}{change_pct:.2f}%"
-        else:
-            result_line = f"💵 Финальный PnL: {pnl_sign}{pnl:.2f} USDT"
+        # Bybit's get_closed_pnl "side" отдаёт сторону закрывающего ордера (для шорта — "Buy"),
+        # а не сторону позиции — доверять ей нельзя. Этот движок всегда торгует в одну сторону
+        # (POSITION_SIDE из .env), поэтому берём её напрямую, а не close_info.get("side").
+        change_pct = _price_change_percent(entry_price, exit_price, POSITION_SIDE)
+        pct_sign = "+" if change_pct >= 0 else ""
+        result_line = f"📈 Итог: {pct_sign}{change_pct:.2f}% ({pnl_sign}{pnl:.2f} USDT)"
 
         return (
             "🔄 Позиция закрыта\n\n"
@@ -473,8 +470,6 @@ class TradeSession:
             return
 
         launch_text = f"🚀 Алгоритм запущен!\n\n📊 Символ: {s.symbol}\n"
-        if int(s.tg_id) not in COMPACT_NOTIFY_TG_IDS:
-            launch_text += f"💰 Сумма: {s.sum_for_trades} USDT\n"
         self._notify_user(launch_text)
 
         self.trailing_stop = TrailingStop(

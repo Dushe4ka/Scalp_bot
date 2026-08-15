@@ -39,10 +39,6 @@ def _parse_admin_id_list(raw: str | None) -> set[int]:
 # Доступ к /admin и админ-уведомления: один или несколько ID через запятую
 ADMIN_IDS = _parse_admin_id_list(os.getenv("ADMIN_IDS"))
 
-# Пользователи с компактными уведомлениями о сделке: без строки "Сумма" при
-# запуске алгоритма, вместо "Финальный PnL" — % движения цены входа/выхода.
-COMPACT_NOTIFY_TG_IDS = _parse_admin_id_list(os.getenv("COMPACT_NOTIFY_TG_IDS"))
-
 
 def resolve_nomulti_tg_id() -> int:
     """Telegram ID для nomulti: NOMULTI_TG_ID или первый ID из ADMIN_IDS."""
