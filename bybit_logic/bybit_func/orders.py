@@ -169,30 +169,32 @@ def place_n_limit_order(
     
     try:
         # Получаем лимиты для округления количества
-        min_qty, step_size = get_qty_limits(symbol, session)
-        
+        min_qty, step_size, max_qty = get_qty_limits(symbol, session)
+
         for i in range(n):
             try:
                 # 1. Рассчитываем сумму в USDT для текущего ордера
                 # Формула: base * 2^i (100, 200, 400, 800...)
                 order_usdt_amount = base_usdt_amount * (2 ** i)
-                
+
                 # 2. Рассчитываем процент отличия от базовой цены
                 # Формула: limit_percentage * (i + 1) (10%, 20%, 30%...)
                 order_percentage = limit_percentage * (i + 1)
-                
+
                 # 3. Рассчитываем цену лимитного ордера от базовой цены
                 # Для Buy: цена ниже базовой (минус процент)
                 # Для Sell: цена выше базовой (плюс процент)
                 limit_price = calculator.calculate_limit_price(base_price, order_percentage, side)
-                
+
                 # 4. ✅ Рассчитываем количество монет для ордера на основе лимитной цены
                 # qty = сумма_в_usdt / цена_ордера
                 qty = order_usdt_amount / limit_price
-                
+
                 # 5. ✅ Округляем количество с учетом лимитов биржи (как в эталоне)
                 if qty < min_qty:
                     qty = min_qty
+                if qty > max_qty:
+                    qty = max_qty
                 qty = calculator.round_by_step(qty, step_size)
                 
                 # 6. ✅ Проверяем, что после округления количество валидное
@@ -308,7 +310,7 @@ def place_n_limit_order_v2(
         return None
 
     try:
-        min_qty, step_size = get_qty_limits(symbol, session)
+        min_qty, step_size, max_qty = get_qty_limits(symbol, session)
 
         for i in range(n):
             try:
@@ -319,6 +321,8 @@ def place_n_limit_order_v2(
 
                 if qty < min_qty:
                     qty = min_qty
+                if qty > max_qty:
+                    qty = max_qty
                 qty = calculator.round_by_step(qty, step_size)
 
                 if qty < min_qty:

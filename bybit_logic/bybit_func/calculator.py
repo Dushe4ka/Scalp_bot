@@ -30,11 +30,13 @@ def calculate_qty(symbol, usdt_amount, session: HTTP):
     last_price = float(ticker['result']['list'][0]['lastPrice'])
     
     qty = usdt_amount / last_price
-    min_qty, step_size = get_qty_limits(symbol, session)
-    
+    min_qty, step_size, max_qty = get_qty_limits(symbol, session)
+
     if qty < min_qty:
         qty = min_qty
-    
+    if qty > max_qty:
+        qty = max_qty
+
     qty = round_by_step(qty, step_size)
     
     # ✅ Дополнительное округление до нужного количества знаков после запятой

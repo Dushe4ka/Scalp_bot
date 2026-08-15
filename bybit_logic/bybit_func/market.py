@@ -11,9 +11,11 @@ def get_qty_limits(symbol, session: HTTP):
         category="linear",
         symbol=symbol,
     )
-    min_qty = float(response.get('result', {}).get('list', [])[0].get('lotSizeFilter', {}).get('minOrderQty'))
-    step_size = float(response.get('result', {}).get('list', [])[0].get('lotSizeFilter', {}).get('qtyStep'))
-    return min_qty, step_size
+    lot_size_filter = response.get('result', {}).get('list', [])[0].get('lotSizeFilter', {})
+    min_qty = float(lot_size_filter.get('minOrderQty'))
+    step_size = float(lot_size_filter.get('qtyStep'))
+    max_qty = float(lot_size_filter.get('maxOrderQty'))
+    return min_qty, step_size, max_qty
 
 def get_price_limits(symbol, session: HTTP):
     response = session.get_instruments_info(
