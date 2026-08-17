@@ -24,19 +24,19 @@ from database.app_settings_repository import app_settings_db
 from config import URL_TGCHANNEL, URL_TECH_SUPPORT
 
 
-def _admin_list_user_button_text(name: str, tg_id: int) -> str:
+def _admin_list_user_button_text(name: str, tg_id: int, *, prefix: str = "") -> str:
     """Текст кнопки пользователя (лимит Telegram 64 символа)."""
     nm = name if name else "—"
     tid = str(tg_id)
-    base = f"{nm} | {tid}"
+    base = f"{prefix}{nm} | {tid}"
     if len(base) <= 64:
         return base
-    reserve = len(tid) + 4
+    reserve = len(tid) + 4 + len(prefix)
     max_nm = 64 - reserve
     if max_nm < 4:
-        return tid[:64]
+        return f"{prefix}{tid}"[:64]
     trimmed = nm[:max_nm].rstrip()
-    return f"{trimmed}… | {tid}"
+    return f"{prefix}{trimmed}… | {tid}"
 
 # -------------------------------------------------------------
 # Start keyboards
@@ -562,8 +562,9 @@ async def subscribers_list_page_kb(
         if tid is None:
             continue
         nm = str(row.get("name") or "—")
+        is_trial = (row.get("subscription_data") or {}).get("subscription_type") == "trial"
         kb.button(
-            text=_admin_list_user_button_text(nm, int(tid)),
+            text=_admin_list_user_button_text(nm, int(tid), prefix="🎁 " if is_trial else ""),
             callback_data=SubscribersUserCb(tg_id=int(tid)),
         )
     if total > 0:

@@ -194,7 +194,7 @@ class UsersRepository:
             cursor = (
                 self._collection.find(
                     {"subscription_data.subscription": True},
-                    {"_id": 0, "name": 1, "tg_id": 1},
+                    {"_id": 0, "name": 1, "tg_id": 1, "subscription_data.subscription_type": 1},
                 )
                 .sort("tg_id", 1)
                 .skip(skip)

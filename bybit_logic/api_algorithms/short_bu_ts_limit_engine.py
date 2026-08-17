@@ -66,6 +66,18 @@ def _price_change_percent(entry_price: float, exit_price: float, side: str | Non
     return ((entry_price - exit_price) / entry_price) * 100
 
 
+def _format_duration(seconds: float) -> str:
+    """Длительность сделки в читаемом виде: "5 мин 32 сек" / "1 ч 12 мин"."""
+    total = max(0, int(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours} ч {minutes} мин"
+    if minutes:
+        return f"{minutes} мин {secs} сек"
+    return f"{secs} сек"
+
+
 def _json_default(obj: Any) -> str:
     if isinstance(obj, datetime):
         return obj.isoformat()
@@ -329,6 +341,7 @@ class TradeSession:
         change_pct = _price_change_percent(entry_price, exit_price, POSITION_SIDE)
         pct_sign = "+" if change_pct >= 0 else ""
         result_line = f"📈 Итог: {pct_sign}{change_pct:.2f}% ({pnl_sign}{pnl:.2f} USDT)"
+        duration_text = _format_duration(time.time() - self.state.created_at)
 
         return (
             "🔄 Позиция закрыта\n\n"
@@ -336,7 +349,8 @@ class TradeSession:
             f"💰 Цена входа: {entry_price:.8g}\n"
             f"💸 Цена выхода: {exit_price:.8g}\n"
             f"{result_line}"
-            f"{source_note}"
+            f"{source_note}\n"
+            f"⏱ Длительность: {duration_text}"
         )
 
     async def _save_active_trade(self) -> None:
