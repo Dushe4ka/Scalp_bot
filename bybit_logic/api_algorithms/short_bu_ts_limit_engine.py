@@ -30,6 +30,7 @@ from celery_app.trade_idempotency import TradeIdempotencyStore
 from celery_app.tasks.notifications import send_notification_to_user_task
 from config import USE_DEMO as USE_DEMO_FROM_ENV
 from database.history_trades_repository import build_trade_doc, history_trades_db
+from demo_showcase.config import DEMO_SHOWCASE_TG_ID
 from logger_config import setup_logger
 
 dotenv.load_dotenv()
@@ -329,7 +330,9 @@ class TradeSession:
         pnl_sign = "+" if pnl >= 0 else ""
         source = close_info.get("source", "")
         source_note = ""
-        if source == "trade_state":
+        # Скрыто для маркетингового demo-showcase аккаунта — техническая пометка о
+        # задержке Bybit не нужна на скриншотах для промо-материалов.
+        if source == "trade_state" and int(self.state.tg_id) != DEMO_SHOWCASE_TG_ID:
             source_note = "\nℹ️ Итог по последней цене в алгоритме (Bybit ещё не отдал closed PnL)"
 
         entry_price = float(close_info.get("entry_price") or 0)
