@@ -187,7 +187,9 @@ cloudflared tunnel --url http://127.0.0.1:8050 --protocol http2 --edge-ip-versio
 
 1. Пропишите в `.env`: `SERVER_URL=https://xxxx.trycloudflare.com`
 2. `pm2 restart scalp-api`
-3. В TradingView укажите webhook: `https://xxxx.trycloudflare.com/short_3_limit`
+3. В TradingView укажите webhook: `https://xxxx.trycloudflare.com/short_3_limit`, тело алерта —
+   `{{ticker}} SHORT SIGNAL` (обычная сделка) или `{{ticker}} Short1` (повышенный риск — тейк 1%,
+   стоп 10%, без усреднений; см. [«Запуск торговли (multi)»](#запуск-торговли-multi))
 
 Проверка:
 
@@ -529,12 +531,21 @@ screen -S scalp-engine1 -X quit
 
 ## Запуск торговли (multi)
 
-Сигнал на символ (тело запроса — только тикер).
+Сигнал на символ. Тело запроса — тикер, опционально с маркером типа алерта через пробел
+(регистронезависимо, парсит `server_api/utils.py::parse_short_signal_body`):
+
+- `BTCUSDT` или `BTCUSDT SHORT SIGNAL` — обычная сделка (текущая логика: БУ+трейлинг по
+  `TRIGGER_PERCENTAGE`, стоп по `STOP_LOSS_PERCENTAGE`, усредняющие лимитники по `COUNT_LIMIT_ORDERS`).
+- `BTCUSDT Short1` — **режим повышенного риска**: БУ+трейлинг сразу по `RISK_MODE_TRIGGER_PERCENTAGE`
+  (по умолчанию 1%), стоп по `RISK_MODE_STOP_LOSS_PERCENTAGE` (по умолчанию 10%), **без усредняющих
+  лимитных ордеров**. Пользователь получает в сообщении о запуске строку "⚠️ Сделка с повышенным
+  риском". Любой нераспознанный маркер трактуется как обычная сделка (безопасный дефолт).
 
 **Локально (на сервере):**
 
 ```bash
 curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
+curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT Short1"
 ```
 
 **Через Cloudflare (как TradingView):**
@@ -543,7 +554,7 @@ curl -X POST http://127.0.0.1:8050/short_3_limit -d "BTCUSDT"
 curl -X POST "https://ваш-url.trycloudflare.com/short_3_limit" -d "BTCUSDT"
 ```
 
-В ответе: `queued` — сколько задач поставлено в Celery.
+В ответе: `queued` — сколько задач поставлено в Celery, `risk_mode` — распознан ли маркер `Short1`.
 
 Цепочка:
 
@@ -551,6 +562,10 @@ curl -X POST "https://ваш-url.trycloudflare.com/short_3_limit" -d "BTCUSDT"
 /short_3_limit → short_3_limit (trade_user) → assign_trade → engine_execute_trade (trade_engine_N)
 → AsyncTradeEngine → цена из Redis (или local WS при feed down)
 ```
+
+`risk_mode` прокидывается по всей этой цепочке как отдельный kwarg (`TradeState.risk_mode`) —
+только для `/short_3_limit` (мультиюзер); `nomulti`/`hedge`/`custom_algo`/`demo_showcase` его не
+используют и не затронуты.
 
 ## Подготовка пользователей в Mongo
 

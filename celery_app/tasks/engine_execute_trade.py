@@ -27,6 +27,7 @@ def engine_execute_trade(
     api_secret: str,
     sum_for_trades: float,
     engine_id: str | None = None,
+    risk_mode: bool = False,
 ):
     setup_project_path()
     eid = engine_id or os.getenv("CELERY_ENGINE_ID", "?")
@@ -49,6 +50,7 @@ def engine_execute_trade(
             api_secret=api_secret,
             sum_for_trades=float(sum_for_trades),
             trade_id=trade_id,
+            risk_mode=risk_mode,
         )
         return {
             "status": "submitted",

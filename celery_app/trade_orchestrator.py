@@ -128,6 +128,7 @@ def assign_trade(
     api_secret: str,
     sum_for_trades: float,
     trade_id: str | None = None,
+    risk_mode: bool = False,
 ) -> dict[str, Any]:
     """
     Pick least-loaded alive engine and reserve a slot (INCR load).
@@ -152,6 +153,7 @@ def assign_trade(
             "api_key": api_key,
             "api_secret": api_secret,
             "sum_for_trades": sum_for_trades,
+            "risk_mode": risk_mode,
             "ts": time.time(),
         }
         client.rpush(KEY_ENGINE_PENDING, json.dumps(payload))

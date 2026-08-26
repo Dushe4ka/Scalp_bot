@@ -20,13 +20,14 @@ def short_3_limit(
     api_secret: str,
     sum_for_trades: float,
     trade_id: str | None = None,
+    risk_mode: bool = False,
 ):
     """
     Маршрутизация short-сделки на engine-воркер (Phase 2 orchestrator).
     """
     setup_project_path()
 
-    logger.info("🔄 short_3_limit route: symbol=%s tg_id=%s", symbol, tg_id)
+    logger.info("🔄 short_3_limit route: symbol=%s tg_id=%s risk_mode=%s", symbol, tg_id, risk_mode)
 
     from celery_app.trade_orchestrator import assign_trade
     from celery_app.tasks.engine_execute_trade import engine_execute_trade
@@ -39,6 +40,7 @@ def short_3_limit(
         api_secret=api_secret,
         sum_for_trades=float(sum_for_trades),
         trade_id=trade_id,
+        risk_mode=risk_mode,
     )
 
     status = assignment.get("status")
@@ -60,6 +62,7 @@ def short_3_limit(
             "api_secret": api_secret,
             "sum_for_trades": float(sum_for_trades),
             "engine_id": assignment["engine_id"],
+            "risk_mode": risk_mode,
         },
         queue=queue,
     )

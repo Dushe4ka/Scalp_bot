@@ -9,7 +9,7 @@ from celery_app.tasks.short_3_limit_nomulti import (
 from celery_app.tasks.hedge_long_short_bu_ts import hedge_long_short_bu_ts_task
 from celery_app.tasks.custom_algo_nomulti import nomulti_custom_algo_task
 from bybit_logic.bybit_func import session, stop_trade, position
-from server_api.utils import validate_and_clean_symbol, get_user_http_session_or_404
+from server_api.utils import validate_and_clean_symbol, get_user_http_session_or_404, parse_short_signal_body
 from config import USE_DEMO
 from database.users_repository import db
 from database.custom_algo_repository import custom_algo_db, normalize_custom_config, CustomAlgoValidationError
@@ -23,11 +23,11 @@ logger = setup_logger(__name__)
 async def short_3_limit_endpoint(request: Request):
     """Запускает алгоритм short для символа (принимает текст)"""
     try:
-        # Получаем тело запроса как текст
+        # Получаем тело запроса как текст: "{ticker}" / "{ticker} SHORT SIGNAL" / "{ticker} Short1"
         body = await request.body()
-        symbol = body.decode('utf-8').strip().upper()
-        symbol = validate_and_clean_symbol(symbol)
-        logger.info(f"🔍 Валидированный символ: {symbol}")
+        raw_body = body.decode('utf-8')
+        symbol, risk_mode = parse_short_signal_body(raw_body)
+        logger.info(f"🔍 Валидированный символ: {symbol} risk_mode={risk_mode}")
 
         if not symbol:
             raise HTTPException(status_code=400, detail="Символ не может быть пустым")
@@ -97,6 +97,7 @@ async def short_3_limit_endpoint(request: Request):
                     "api_key": api_key,
                     "api_secret": api_secret,
                     "sum_for_trades": sum_for_trades,
+                    "risk_mode": risk_mode,
                 }
             )
 
@@ -120,8 +121,9 @@ async def short_3_limit_endpoint(request: Request):
                 task_ids.append(task.id)
 
         logger.info(
-            "🚀 short_3_limit enqueued for symbol=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s skipped_max_concurrent=%s",
+            "🚀 short_3_limit enqueued for symbol=%s risk_mode=%s queued=%s skipped_no_keys=%s skipped_stop_trading=%s skipped_invalid_sum=%s skipped_max_concurrent=%s",
             symbol,
+            risk_mode,
             queued,
             skipped_no_keys,
             skipped_stop_trading,
@@ -130,6 +132,7 @@ async def short_3_limit_endpoint(request: Request):
         )
         return {
             "symbol": symbol,
+            "risk_mode": risk_mode,
             "status": "started",
             "queued": queued,
             "skipped_no_keys": skipped_no_keys,

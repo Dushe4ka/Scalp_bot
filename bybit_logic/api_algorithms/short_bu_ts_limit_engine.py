@@ -51,6 +51,12 @@ LIMIT_PERCENTAGE = float(os.getenv("LIMIT_PERCENTAGE"))
 PNL_LOG_INTERVAL = float(os.getenv("PNL_LOG_INTERVAL"))
 BREAKEVEN_AFTER_AVERAGING_COUNT = int(os.getenv("BREAKEVEN_AFTER_AVERAGING_COUNT", "4"))
 TRIGGER_PERCENTAGE_AFTER_AVERAGING = float(os.getenv("TRIGGER_PERCENTAGE_AFTER_AVERAGING", "1.0"))
+
+# Режим повышенного риска (алерт "{ticker} Short1"): тейк сразу по меньшему порогу БУ+трейлинга,
+# более широкий стоп-лосс, без усредняющих лимитных ордеров.
+RISK_MODE_TRIGGER_PERCENTAGE = float(os.getenv("RISK_MODE_TRIGGER_PERCENTAGE", "1.0"))
+RISK_MODE_STOP_LOSS_PERCENTAGE = float(os.getenv("RISK_MODE_STOP_LOSS_PERCENTAGE", "10.0"))
+
 SNAPSHOT_INTERVAL_SECONDS = 3.0
 
 
@@ -118,6 +124,7 @@ class TradeState:
     last_snapshot_at: float = 0.0
     active_position_idx: int | None = None
     averaging_count: int = 0
+    risk_mode: bool = False
 
 
 class TradeStateStore:
@@ -290,6 +297,8 @@ class TradeSession:
         send_notification_to_admins_task.delay(text)
 
     def _breakeven_trigger_percent(self) -> float:
+        if self.state.risk_mode:
+            return RISK_MODE_TRIGGER_PERCENTAGE
         if self.state.averaging_count >= BREAKEVEN_AFTER_AVERAGING_COUNT:
             return TRIGGER_PERCENTAGE_AFTER_AVERAGING
         return TRIGGER_PERCENTAGE
@@ -487,6 +496,8 @@ class TradeSession:
             return
 
         launch_text = f"🚀 Алгоритм запущен!\n\n📊 Символ: {s.symbol}\n"
+        if s.risk_mode:
+            launch_text += "⚠️ Сделка с повышенным риском\n"
         self._notify_user(launch_text)
 
         self.trailing_stop = TrailingStop(
@@ -530,16 +541,18 @@ class TradeSession:
         except Exception as e:
             logger.error("❌ Ошибка сохранения active trade tg_id=%s: %s", s.tg_id, e, exc_info=True)
 
-        sl = calculator.calculate_stop_loss(s.entry_price, STOP_LOSS_PERCENTAGE, POSITION_SIDE)
+        stop_loss_percentage = RISK_MODE_STOP_LOSS_PERCENTAGE if s.risk_mode else STOP_LOSS_PERCENTAGE
+        sl = calculator.calculate_stop_loss(s.entry_price, stop_loss_percentage, POSITION_SIDE)
         await self.adapter.set_stop_loss(s.symbol, sl, self.http_session, position_idx=s.active_position_idx)
-        await self.adapter.place_n_limit_order(
-            s.symbol,
-            s.algorithms_sum_for_trades,
-            POSITION_SIDE,
-            s.entry_price,
-            self.http_session,
-            position_idx=s.active_position_idx,
-        )
+        if not s.risk_mode:
+            await self.adapter.place_n_limit_order(
+                s.symbol,
+                s.algorithms_sum_for_trades,
+                POSITION_SIDE,
+                s.entry_price,
+                self.http_session,
+                position_idx=s.active_position_idx,
+            )
         self._queue = await self.feed_hub.subscribe(s.symbol)
 
     async def _price_loop(self) -> None:
@@ -746,6 +759,7 @@ class AsyncTradeEngine:
         api_secret: str,
         sum_for_trades: float,
         trade_id: str | None = None,
+        risk_mode: bool = False,
     ) -> str:
         self.ensure_started()
         tid = trade_id or f"{tg_id}:{symbol.upper()}:{uuid.uuid4().hex[:10]}"
@@ -758,6 +772,7 @@ class AsyncTradeEngine:
                 api_key=api_key,
                 api_secret=api_secret,
                 sum_for_trades=sum_for_trades,
+                risk_mode=risk_mode,
             ),
             self._loop,
         )
@@ -807,7 +822,7 @@ class AsyncTradeEngine:
         await self.store.release_idempotency(symbol, tg_id)
         return await self.store.acquire_idempotency(symbol=symbol, tg_id=tg_id)
 
-    async def _submit_trade_async(self, trade_id: str, symbol: str, tg_id: int, name: str, api_key: str, api_secret: str, sum_for_trades: float) -> None:
+    async def _submit_trade_async(self, trade_id: str, symbol: str, tg_id: int, name: str, api_key: str, api_secret: str, sum_for_trades: float, risk_mode: bool = False) -> None:
         symbol = symbol.upper()
         from database.history_trades_repository import history_trades_db
         from database.users_sync import get_max_concurrent_trades
@@ -854,6 +869,7 @@ class AsyncTradeEngine:
             api_secret=api_secret,
             sum_for_trades=float(sum_for_trades),
             algorithms_sum_for_trades=float(sum_for_trades) * 10,
+            risk_mode=risk_mode,
         )
         session_runner = TradeSession(state=state, adapter=self.adapter, feed_hub=self.feed_hub, store=self.store)
         task = asyncio.create_task(session_runner.run(), name=f"trade:{trade_id}")

@@ -60,6 +60,37 @@ def validate_and_clean_symbol(symbol: str) -> str:
     return symbol
 
 
+def parse_short_signal_body(raw_body: str) -> tuple[str, bool]:
+    """
+    Разбирает тело вебхука /short_3_limit: тикер + опциональный маркер типа алерта.
+
+    Поддерживаемые форматы (маркер — всё после первого пробела, регистронезависимо):
+    - "{ticker}"               -> обычный режим (маркер отсутствует)
+    - "{ticker} SHORT SIGNAL"  -> обычный режим (текущая логика)
+    - "{ticker} Short1"        -> режим повышенного риска (тейк 1%, стоп 10%, без усреднений)
+
+    Любой другой/неизвестный маркер трактуется как обычный режим — безопасный дефолт.
+
+    Args:
+        raw_body: Сырое тело POST-запроса от TradingView
+
+    Returns:
+        tuple[str, bool]: (очищенный символ, risk_mode)
+
+    Raises:
+        ValueError: Если тело пустое или тикер невалиден
+    """
+    raw = (raw_body or "").strip()
+    if not raw:
+        raise ValueError("Символ не может быть пустым")
+
+    ticker_part, _, marker_part = raw.partition(" ")
+    symbol = validate_and_clean_symbol(ticker_part)
+    marker = marker_part.strip().upper()
+    risk_mode = marker == "SHORT1"
+    return symbol, risk_mode
+
+
 async def get_user_http_session_or_404(tg_id: int):
     """
     Возвращает Bybit HTTP-сессию пользователя по tg_id.
