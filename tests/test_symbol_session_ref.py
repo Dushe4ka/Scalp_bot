@@ -33,6 +33,13 @@ class SymbolSessionRefTests(unittest.TestCase):
         self.assertEqual(n, 0)
         rel.assert_called_once()
 
+    def test_refresh_refcount_returns_value_and_touches_ttl(self):
+        fake_redis = _fake_redis_client(2)
+        with patch.dict(sys.modules, {"redis": fake_redis}):
+            n = ref_mod.get_symbol_refcount_and_refresh("BTCUSDT")
+        self.assertEqual(n, 2)
+        fake_redis.Redis.from_url.return_value.eval.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -194,13 +194,13 @@ class DualMarketFeed:
     def _reap_idle_symbols(self) -> None:
         if self._symbol_idle_sec <= 0:
             return
-        from bybit_logic.feeds.symbol_session_ref import get_symbol_refcount
+        from bybit_logic.feeds.symbol_session_ref import get_symbol_refcount_and_refresh
 
         now = time.time()
         with self._symbol_lock:
             symbols = list(self._symbol_streams.keys())
         for symbol in symbols:
-            if get_symbol_refcount(symbol) > 0:
+            if get_symbol_refcount_and_refresh(symbol) > 0:
                 continue
             last = self._symbol_last_publish.get(symbol, 0.0)
             if last <= 0:

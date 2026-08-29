@@ -48,6 +48,16 @@ redis.call('EXPIRE', ref_key, ttl)
 return n
 """
 
+_REFRESH_LUA = """
+local ref_key = KEYS[1]
+local ttl = tonumber(ARGV[1])
+local n = tonumber(redis.call('GET', ref_key) or 0)
+if n > 0 then
+  redis.call('EXPIRE', ref_key, ttl)
+end
+return n
+"""
+
 
 def _client():
     import redis
@@ -130,4 +140,32 @@ def get_symbol_refcount(symbol: str, *, redis_url: str | None = None) -> int:
         client = _client() if redis_url is None else __import__("redis").Redis.from_url(redis_url, decode_responses=True)
         return int(client.get(symbol_ref_key(sym)) or 0)
     except Exception:
+        return 0
+
+
+def get_symbol_refcount_and_refresh(symbol: str, *, redis_url: str | None = None) -> int:
+    """
+    Возвращает глобальный refcount символа и продлевает TTL ключа, если есть активные сессии.
+
+    Используется фидом, чтобы ключ рефкаунта не истекал, пока сделка висит открытой дольше
+    TTL: иначе счётчик обнуляется, и фид считает символ неиспользуемым, хотя сессии ещё живы.
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        return 0
+    try:
+        import redis
+
+        url = redis_url or REDIS_URL
+        client = redis.Redis.from_url(url, decode_responses=True)
+        return int(
+            client.eval(
+                _REFRESH_LUA,
+                1,
+                symbol_ref_key(sym),
+                str(_REFC_TTL_SECONDS),
+            )
+        )
+    except Exception as e:
+        logger.warning("get_symbol_refcount_and_refresh(%s) failed: %s", sym, e)
         return 0
