@@ -1,4 +1,4 @@
-from config import URL_PAYMENT, SUBSCRIPTION_PRICE_USD
+from config import URL_PAYMENT
 
 RU_CONFIGURATION = {
   "start_text": {
@@ -33,8 +33,9 @@ RU_CONFIGURATION = {
   }, # -------------------------------------------------------------
   "subscription_text": {
     "buy_info": (
-        f"💳 Оплата подписки — 1 месяц = {SUBSCRIPTION_PRICE_USD}$\n\n"
-        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ одним из способов:\n"
+        "💳 Оплата подписки — 1 месяц\n\n"
+        "<s>{old_price}$</s> {price}$ 🔥\n\n"
+        "1️⃣ Переведите {price}$ одним из способов:\n"
         f"   • по адресу кошелька:\n{URL_PAYMENT}\n"
         "   • по QR-коду на изображении\n"
         "   Сеть: TRC-20 (только с биржевого аккаунта)\n"
@@ -65,8 +66,9 @@ RU_CONFIGURATION = {
     "confirm_payment_success": "Спасибо! Заявка отправлена.\n\nАдминистратор проверит платёж в течение 24 часов. Пока ждёте — можете настроить API-ключ Bybit в личном кабинете.",
     "prolong_confirm_payment_success": "Спасибо! Заявка на продление отправлена.\n\nАдминистратор проверит платёж в течение 24 часов.",
     "prolong_subscription": (
-        f"🔄 Продление подписки\n\n"
-        f"1️⃣ Переведите {SUBSCRIPTION_PRICE_USD}$ одним из способов:\n"
+        "🔄 Продление подписки\n\n"
+        "<s>{old_price}$</s> {price}$ 🔥\n\n"
+        "1️⃣ Переведите {price}$ одним из способов:\n"
         f"   • по адресу кошелька:\n{URL_PAYMENT}\n"
         "   • по QR-коду на изображении\n"
         "   Сеть: TRC-20\n"
@@ -354,11 +356,29 @@ RU_CONFIGURATION = {
     "trial_granted": "🎁 Пробный период выдан.",
     "trial_already_used": "Пользователь уже использовал пробный период.",
     "trial_reset": "♻️ Флаг использования триала сброшен.",
+    "subscription_price": (
+        "💲 Цена подписки\n\n"
+        "Текущая: {price}$\n"
+        "Старая (зачёркнутая в боте): {old_price}$"
+    ),
+    "subscription_price_prompt": (
+        "✏️ Введите новую цену подписки:\n\n"
+        "• «59» — поменять только текущую цену\n"
+        "• «59/79» — поменять текущую и старую (зачёркнутую) цену"
+    ),
+    "subscription_price_invalid": "❌ Некорректный ввод: {error}\n\nПопробуйте ещё раз.",
+    "subscription_price_updated": (
+        "✅ Цена подписки обновлена\n\n"
+        "Текущая: {price}$\n"
+        "Старая (зачёркнутая в боте): {old_price}$"
+    ),
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Пользователи 👥",
     "statistics_project": "Статистика 📊",
     "stop_all_trading": "🛑 Остановить всю торговлю",
+    "subscription_price": "💲 Цена подписки",
+    "edit_subscription_price": "✏️ Изменить",
     "server": "Сервер 🖥",
     "check_health": "Проверка работоспособности сервера",
     "wait_confirm": "Ожидающие подтверждения",

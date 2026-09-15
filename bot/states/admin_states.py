@@ -7,3 +7,4 @@ class AdminStates(StatesGroup):
     edit_bybit_api_key = State()
     edit_bybit_api_secret = State()
     edit_bybit_sum_for_trades = State()
+    edit_subscription_price = State()

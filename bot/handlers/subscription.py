@@ -22,6 +22,8 @@ from bot.utils.helpers import safe_edit_message, send_info_payment_to_admin
 from bot.utils.payment_screen import send_payment_info_screen, replace_callback_message_with_text
 from bot.utils.profile_menu import build_profile_menu_view
 from database.users_repository import db
+from database.app_settings_repository import app_settings_db
+from bot.utils.subscription_price import format_price
 from bot.languages._lang_func import get_config_lang
 from bot.states.subscription_states import SubscriptionStates
 from aiogram.fsm.context import FSMContext
@@ -36,7 +38,11 @@ async def subscription_buy(callback: CallbackQuery, lang: str):
     username = callback.from_user.username or ""
     
     text_config = await get_config_lang(lang)
-    text = text_config["subscription_text"]["buy_info"]
+    prices = await app_settings_db.get_subscription_price()
+    text = text_config["subscription_text"]["buy_info"].format(
+        price=format_price(prices["price_usd"]),
+        old_price=format_price(prices["old_price_usd"]),
+    )
 
     await send_payment_info_screen(
         callback,
@@ -162,7 +168,11 @@ async def prolong_subscription(callback: CallbackQuery, lang: str):
     username = callback.from_user.username or ""
     
     text_config = await get_config_lang(lang)
-    text = text_config["subscription_text"]["prolong_subscription"]
+    prices = await app_settings_db.get_subscription_price()
+    text = text_config["subscription_text"]["prolong_subscription"].format(
+        price=format_price(prices["price_usd"]),
+        old_price=format_price(prices["old_price_usd"]),
+    )
 
     await send_payment_info_screen(
         callback,

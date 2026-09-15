@@ -1,4 +1,4 @@
-from config import URL_PAYMENT, SUBSCRIPTION_PRICE_USD
+from config import URL_PAYMENT
 
 EN_CONFIGURATION = {
   "start_text": {
@@ -33,8 +33,9 @@ EN_CONFIGURATION = {
   }, # -------------------------------------------------------------
   "subscription_text": {
     "buy_info": (
-        f"💳 Subscription — 1 month = {SUBSCRIPTION_PRICE_USD}$\n\n"
-        f"1️⃣ Send {SUBSCRIPTION_PRICE_USD}$ using either:\n"
+        "💳 Subscription — 1 month\n\n"
+        "<s>{old_price}$</s> {price}$ 🔥\n\n"
+        "1️⃣ Send {price}$ using either:\n"
         f"   • wallet address:\n{URL_PAYMENT}\n"
         "   • QR code in the image\n"
         "   Network: TRC-20 (exchange account only)\n"
@@ -49,8 +50,9 @@ EN_CONFIGURATION = {
     "confirm_payment": "Is everything correct: {payment_id}",
     "confirm_payment_success": "Thank you! Your request has been sent.\n\nAn admin will verify payment within 24 hours. While you wait, you can set up your Bybit API key in profile settings.",
     "prolong_subscription": (
-        f"🔄 Extend subscription\n\n"
-        f"1️⃣ Send {SUBSCRIPTION_PRICE_USD}$ using either:\n"
+        "🔄 Extend subscription\n\n"
+        "<s>{old_price}$</s> {price}$ 🔥\n\n"
+        "1️⃣ Send {price}$ using either:\n"
         f"   • wallet address:\n{URL_PAYMENT}\n"
         "   • QR code in the image\n"
         "   Network: TRC-20\n"
@@ -335,10 +337,28 @@ EN_CONFIGURATION = {
     "trial_granted": "🎁 Trial granted.",
     "trial_already_used": "User has already used the trial.",
     "trial_reset": "♻️ Trial usage flag reset.",
+    "subscription_price": (
+        "💲 Subscription price\n\n"
+        "Current: {price}$\n"
+        "Old (crossed out in the bot): {old_price}$"
+    ),
+    "subscription_price_prompt": (
+        "✏️ Enter the new subscription price:\n\n"
+        "• \"59\" — change only the current price\n"
+        "• \"59/79\" — change both current and old (crossed out) price"
+    ),
+    "subscription_price_invalid": "❌ Invalid input: {error}\n\nTry again.",
+    "subscription_price_updated": (
+        "✅ Subscription price updated\n\n"
+        "Current: {price}$\n"
+        "Old (crossed out in the bot): {old_price}$"
+    ),
   }, # -------------------------------------------------------------
   "admin_btn": {
     "users_list": "Users 👥",
     "statistics_project": "Statistics 📊",
+    "subscription_price": "💲 Subscription price",
+    "edit_subscription_price": "✏️ Edit",
     "server": "Server 🖥",
     "wait_confirm": "Pending confirmation",
     "subscribers": "Subscribers",

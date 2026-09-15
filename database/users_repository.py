@@ -10,7 +10,8 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pymongo import errors as pymongo_errors
 from pymongo.results import UpdateResult
 
-from config import MONGO_URI, MONGO_DB, SUBSCRIPTION_PRICE_USD
+from config import MONGO_URI, MONGO_DB
+from database.app_settings_repository import app_settings_db
 from logger_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -1019,11 +1020,13 @@ class UsersRepository:
 
         total_amount = await self.get_total_amount(tg_id)
 
+        subscription_price = (await app_settings_db.get_subscription_price())["price_usd"]
+
         await self.update_wait_sub_confirmation(tg_id, True)
         await self.update_subscription_type(tg_id, "1 мес")
         await self.update_payment_date(tg_id, data_now)
-        await self.update_current_amount(tg_id, SUBSCRIPTION_PRICE_USD)
-        await self.update_total_amount(tg_id, total_amount + SUBSCRIPTION_PRICE_USD)
+        await self.update_current_amount(tg_id, subscription_price)
+        await self.update_total_amount(tg_id, total_amount + subscription_price)
 
         logger.info(f"Данные пользователя {tg_id} обновлены (покупка подписки 30 дней)")
 

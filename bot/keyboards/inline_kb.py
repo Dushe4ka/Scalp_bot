@@ -427,6 +427,7 @@ async def admin_menu_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     kb.button(text=cfg["admin_btn"]["users_list"], callback_data="users_list")
     kb.button(text=cfg["admin_btn"]["statistics_project"], callback_data="statistics_project")
     kb.button(text=cfg["admin_btn"]["stop_all_trading"], callback_data="admin_stop_all_trading")
+    kb.button(text=cfg["admin_btn"]["subscription_price"], callback_data="admin_subscription_price")
     kb.button(text=cfg["admin_btn"]["server"], callback_data="server")
     kb.button(text=cfg["general"]["admin_to_main_menu"], callback_data="greeting")
     kb.adjust(1)
@@ -451,6 +452,27 @@ async def statistics_project_kb(user_id: int, lang: str) -> InlineKeyboardBuilde
     kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_menu")
     kb.adjust(1)
     return kb
+
+async def subscription_price_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки на экране цены подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["admin_btn"]["edit_subscription_price"], callback_data="admin_edit_subscription_price")
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_menu")
+    kb.adjust(1)
+    return kb
+
+
+async def back_to_subscription_price_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
+    """
+    Кнопки при возврате к экрану цены подписки
+    """
+    kb = InlineKeyboardBuilder()
+    kb.button(text=(await get_config_lang(lang))["general"]["back"], callback_data="admin_subscription_price")
+    kb.adjust(1)
+    return kb
+
 
 async def server_kb(user_id: int, lang: str) -> InlineKeyboardBuilder:
     """

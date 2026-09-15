@@ -29,6 +29,8 @@ from bot.keyboards.inline_kb import (
     statistics_project_kb,
     server_kb,
     back_to_server_kb,
+    subscription_price_kb,
+    back_to_subscription_price_kb,
 )
 from bot.callback_data.admin_lists import (
     ADMIN_LIST_PAGE_SIZE,
@@ -49,6 +51,7 @@ from bot.utils.misc import _format_dt
 from bot.states.admin_states import AdminStates
 from database.users_repository import db, UsersRepositoryError, ValidationError
 from database.app_settings_repository import app_settings_db, AppSettingsRepositoryError
+from bot.utils.subscription_price import format_price, parse_admin_price_input
 from config import LOCAL_SERVER_URL
 
 
@@ -1510,6 +1513,77 @@ async def process_edit_date_end_subs(message: Message, state: FSMContext, lang: 
         f"Админ {admin_user_id} ({admin_username}) изменил дату окончания подписки пользователя {username_id} "
         f"на {end_subscription_date.isoformat()}"
     )
+
+# -------------------------------------------------------------
+# Цена подписки
+# -------------------------------------------------------------
+
+@router.callback_query(F.data == "admin_subscription_price")
+async def admin_subscription_price(callback: CallbackQuery, lang: str):
+    """Экран текущей/старой цены подписки."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+    prices = await app_settings_db.get_subscription_price()
+    text = text_config["admin_text"]["subscription_price"].format(
+        price=format_price(prices["price_usd"]),
+        old_price=format_price(prices["old_price_usd"]),
+    )
+    await safe_edit_message(
+        callback,
+        text,
+        reply_markup=(await subscription_price_kb(user_id, lang)).as_markup(),
+    )
+    logger.info(f"Админ {user_id} ({username}) открыл цену подписки")
+
+
+@router.callback_query(F.data == "admin_edit_subscription_price")
+async def admin_edit_subscription_price(callback: CallbackQuery, state: FSMContext, lang: str):
+    """Запрос новой цены подписки у админа."""
+    user_id = callback.from_user.id
+    username = callback.from_user.username or ""
+
+    text_config = await get_config_lang(lang)
+    await state.set_state(AdminStates.edit_subscription_price)
+    await safe_edit_message(
+        callback,
+        text_config["admin_text"]["subscription_price_prompt"],
+        reply_markup=(await back_to_subscription_price_kb(user_id, lang)).as_markup(),
+    )
+    logger.info(f"Админ {user_id} ({username}) редактирует цену подписки")
+
+
+@router.message(AdminStates.edit_subscription_price, F.text)
+async def process_edit_subscription_price(message: Message, state: FSMContext, lang: str):
+    """Админ прислал новую цену подписки."""
+    admin_user_id = message.from_user.id
+    admin_username = message.from_user.username or ""
+    text_config = await get_config_lang(lang)
+
+    try:
+        price, old_price = parse_admin_price_input(message.text)
+    except ValueError as e:
+        await message.answer(
+            text_config["admin_text"]["subscription_price_invalid"].format(error=str(e)),
+            reply_markup=(await back_to_subscription_price_kb(admin_user_id, lang)).as_markup(),
+        )
+        return
+
+    prices = await app_settings_db.set_subscription_price(price, old_price)
+    await state.clear()
+    await message.answer(
+        text_config["admin_text"]["subscription_price_updated"].format(
+            price=format_price(prices["price_usd"]),
+            old_price=format_price(prices["old_price_usd"]),
+        ),
+        reply_markup=(await subscription_price_kb(admin_user_id, lang)).as_markup(),
+    )
+    logger.info(
+        f"Админ {admin_user_id} ({admin_username}) изменил цену подписки: "
+        f"price={prices['price_usd']} old_price={prices['old_price_usd']}"
+    )
+
 
 # -------------------------------------------------------------
 # Сервер

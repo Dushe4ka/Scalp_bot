@@ -183,6 +183,19 @@ confirms "✅ Всё верно" (only then does the admin get notified, via `Ad
 etc. callbacks carrying `tg_id`, independent of FSM state) → admin approves/rejects → user gets a Telegram DM either
 way.
 
+**Subscription price is dynamic, not the `.env` `SUBSCRIPTION_PRICE_USD` constant.** It lives in Mongo
+`app_settings` (`_id: "subscription_price"`, fields `price_usd`/`old_price_usd`) via
+`database/app_settings_repository.py::get_subscription_price()`/`set_subscription_price()` — same pattern as
+`trade_amount_unlimited_tg_ids`. Admin changes it from the bot ("💲 Цена подписки" in the admin menu →
+`bot/handlers/admin.py`, input parsed by `bot/utils/subscription_price.py::parse_admin_price_input()`, accepts
+`"59"` or `"59/79"` for price/old_price). The subscription-purchase/renewal screens (`bot/languages/ru.py` /
+`en.py`, `buy_info`/`prolong_subscription`) are plain templates with `{price}`/`{old_price}` placeholders
+(previously baked in as f-strings at import time, which is why the price used to require a redeploy to change)
+resolved fresh on every screen render in `bot/handlers/subscription.py`, and show a `<s>{old_price}$</s> {price}$`
+discount line — sent with `parse_mode="HTML"` (`bot/utils/payment_screen.py`, the only place that sets it).
+`.env`'s `SUBSCRIPTION_PRICE_USD` still exists only as the seed for `old_price_usd` before an admin first sets
+the price in Mongo, and no longer affects the live UI once that Mongo doc exists.
+
 ## Non-obvious conventions
 
 - Sync pymongo (not Motor) is used deliberately inside Celery tasks/repositories that run in forked worker

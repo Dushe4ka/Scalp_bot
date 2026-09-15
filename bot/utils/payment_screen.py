@@ -65,6 +65,7 @@ async def send_payment_info_screen(
             photo=FSInputFile(qr_path),
             caption=text,
             reply_markup=reply_markup,
+            parse_mode="HTML",
         )
         return
 
@@ -73,4 +74,5 @@ async def send_payment_info_screen(
         chat_id=chat_id,
         text=text,
         reply_markup=reply_markup,
+        parse_mode="HTML",
     )
