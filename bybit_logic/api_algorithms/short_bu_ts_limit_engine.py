@@ -454,6 +454,11 @@ class TradeSession:
             one_way_ok = False
 
         if await self.adapter.if_position_open(self.http_session, s.symbol):
+            logger.warning(
+                "⚠️ Дубликат отфильтрован (if_position_open=True) trade_id=%s tg_id=%s symbol=%s — "
+                "вход пропущен, позиция на бирже НЕ открыта этим запуском",
+                s.trade_id, s.tg_id, s.symbol,
+            )
             self._notify_user(
                 f"⚠️ Дубликат отфильтрован\n\n📊 Символ: {s.symbol}\n"
                 "ℹ️ По этой монете у вас уже открыта позиция — новый вход пропущен"

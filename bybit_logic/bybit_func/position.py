@@ -57,6 +57,7 @@ def if_position_open(session: HTTP, symbol: str) -> bool:
             return True
         else:
             return False
+    return False
 
 
 def get_last_position_info(session: HTTP, symbol: str) -> Optional[Dict[str, Any]]:
