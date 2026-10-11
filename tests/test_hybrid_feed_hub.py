@@ -148,7 +148,10 @@ class MarketFeedHubTests(unittest.IsolatedAsyncioTestCase):
             sub = self.hub._symbols["BTWUSDT"]["queue_subs"][id(queue)]
             fanout = sub.fanout
             await asyncio.sleep(0.01)  # fanout is now inside wait_for
-            fanout.cancel = lambda *a, **k: False  # simulate the lost cancellation
+            # Simulate the lost cancellation: unsubscribe never reaches fanout.cancel(),
+            # the task must stop on the `closed` flag alone. (Patching task.cancel instead
+            # would break wait_for's own timeout on Python 3.12+.)
+            sub.fanout = None
             self.local_stream.start.reset_mock()
 
             await self.hub.unsubscribe("BTWUSDT", queue)
