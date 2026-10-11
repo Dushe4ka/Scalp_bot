@@ -1,9 +1,9 @@
 """
 Global Redis refcount of active trade sessions per symbol (all engine processes).
 
-- acquire on feed_hub.subscribe (first session → open feed WS)
-- release on feed_hub.unsubscribe when last queue in process removed;
-  when global ref hits 0 → close feed WS
+- acquire on feed_hub.subscribe for every REDIS-mode session (first session → open feed WS)
+- release on feed_hub.unsubscribe exactly once per successful acquire (LOCAL-mode sessions
+  never touch the refcount); when global ref hits 0 → close feed WS
 """
 from __future__ import annotations
 

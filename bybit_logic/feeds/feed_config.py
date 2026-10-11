@@ -30,6 +30,8 @@ PRICE_FEED_LOCAL_FALLBACK = _bool("PRICE_FEED_LOCAL_FALLBACK", True)
 PRICE_FEED_STALE_SEC = _float("PRICE_FEED_STALE_SEC", 5.0)
 PRICE_FEED_DOWN_SEC = _float("PRICE_FEED_DOWN_SEC", 15.0)
 PRICE_FEED_FAILOVER_HYSTERESIS_SEC = _float("PRICE_FEED_FAILOVER_HYSTERESIS_SEC", 30.0)
+# Engine: no Redis ticks for a symbol this long → open local WS for it (per-symbol, ignores global feed status).
+PRICE_FEED_TICK_TIMEOUT_SEC = _float("PRICE_FEED_TICK_TIMEOUT_SEC", 15.0)
 
 MAX_SESSIONS_PER_ENGINE = _int("MAX_SESSIONS_PER_ENGINE", 30)
 TRADE_ENGINE_COUNT = _int("TRADE_ENGINE_COUNT", 2)
@@ -37,6 +39,8 @@ TRADE_SUBMIT_STAGGER_SEC = _float("TRADE_SUBMIT_STAGGER_SEC", 0.03)
 
 # Stop feed WS for a symbol after no ticks published (seconds). 0 = never auto-stop.
 MARKET_FEED_SYMBOL_IDLE_SEC = _float("MARKET_FEED_SYMBOL_IDLE_SEC", 3600.0)
+# Feed: no WS messages for a running symbol this long → recreate its WS streams. 0 = disabled.
+MARKET_FEED_SYMBOL_SILENT_SEC = _float("MARKET_FEED_SYMBOL_SILENT_SEC", 60.0)
 
 FEED_STALE_SEC = _float("FEED_STALE_SEC", 5.0)
 FEED_DOWN_SEC = _float("FEED_DOWN_SEC", 15.0)

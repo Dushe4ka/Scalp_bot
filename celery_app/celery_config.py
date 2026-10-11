@@ -19,6 +19,7 @@ _engine_queues = tuple(
 )
 
 _subscription_check_hours = float(os.getenv("SUBSCRIPTION_LIFECYCLE_CHECK_HOURS", "12"))
+_watchdog_interval_sec = float(os.getenv("WATCHDOG_INTERVAL_SEC", "60"))
 
 celery_app.conf.update(
     imports=[
@@ -30,6 +31,7 @@ celery_app.conf.update(
         'celery_app.tasks.notifications',
         'celery_app.tasks.subscription_lifecycle',
         'celery_app.tasks.api_key_lifecycle',
+        'celery_app.tasks.trade_watchdog',
         'celery_app.worker_signals',
         'demo_showcase.tasks',
     ],
@@ -47,6 +49,8 @@ celery_app.conf.update(
         Queue("default"),
         Queue("trade_user"),
         Queue("demo_showcase"),
+        # Отдельно от роутера: hedge/custom-алгоритмы держат default,trade_user-воркер всю сделку.
+        Queue("watchdog"),
     ) + _engine_queues,
     beat_schedule={
         "check-subscription-lifecycle": {
@@ -56,6 +60,12 @@ celery_app.conf.update(
         "check-api-key-lifecycle": {
             "task": "check_api_key_lifecycle",
             "schedule": timedelta(hours=_subscription_check_hours),
+        },
+        "check-active-trades": {
+            "task": "check_active_trades",
+            "schedule": timedelta(seconds=_watchdog_interval_sec),
+            # Не копить пропущенные проходы, если роутер был занят/лежал.
+            "options": {"queue": "watchdog", "expires": _watchdog_interval_sec},
         },
     },
 )

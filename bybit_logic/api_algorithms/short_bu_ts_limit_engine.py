@@ -23,6 +23,11 @@ import dotenv
 
 from bybit_logic.bybit_func import calculator, market, orders, position, session, stop_trade
 from bybit_logic.bybit_func.trailing_stop import TrailingStop
+from bybit_logic.api_algorithms.trade_close_format import (
+    format_close_notification,
+    format_duration as _format_duration,
+    price_change_percent as _price_change_percent,
+)
 from bybit_logic.feeds.feed_config import MAX_SESSIONS_PER_ENGINE
 from bybit_logic.feeds.hybrid_feed_hub import MarketFeedHub
 from celery_app.config import REDIS_URL
@@ -59,30 +64,18 @@ RISK_MODE_STOP_LOSS_PERCENTAGE = float(os.getenv("RISK_MODE_STOP_LOSS_PERCENTAGE
 
 SNAPSHOT_INTERVAL_SECONDS = 3.0
 
+# Пульс сессий для сторожа (celery_app/trade_watchdog.py): пишется циклом движка,
+# не зависит от тиков; last_price_at показывает, когда сессия последний раз получала цену.
+SESSION_HEARTBEAT_INTERVAL_SECONDS = 15.0
+SESSION_HEARTBEAT_TTL_SECONDS = 60
+
+
+def session_heartbeat_key(trade_id: str) -> str:
+    return f"trade_alive:{trade_id}"
+
 
 def _hedge_leg_position_idx(side: str | None) -> int:
     return 1 if (side or "").strip() == "Buy" else 2
-
-
-def _price_change_percent(entry_price: float, exit_price: float, side: str | None) -> float:
-    """% движения цены вход->выход, знак — по направлению позиции (совпадает со знаком PnL)."""
-    if not entry_price:
-        return 0.0
-    if (side or "").strip() == "Buy":
-        return ((exit_price - entry_price) / entry_price) * 100
-    return ((entry_price - exit_price) / entry_price) * 100
-
-
-def _format_duration(seconds: float) -> str:
-    """Длительность сделки в читаемом виде: "5 мин 32 сек" / "1 ч 12 мин"."""
-    total = max(0, int(seconds))
-    hours, rem = divmod(total, 3600)
-    minutes, secs = divmod(rem, 60)
-    if hours:
-        return f"{hours} ч {minutes} мин"
-    if minutes:
-        return f"{minutes} мин {secs} сек"
-    return f"{secs} сек"
 
 
 def _json_default(obj: Any) -> str:
@@ -125,6 +118,7 @@ class TradeState:
     active_position_idx: int | None = None
     averaging_count: int = 0
     risk_mode: bool = False
+    last_price_at: float = 0.0
 
 
 class TradeStateStore:
@@ -335,34 +329,14 @@ class TradeSession:
         return merged
 
     def _format_close_notification(self, close_info: dict[str, Any]) -> str:
-        pnl = float(close_info.get("pnl_usdt") or 0)
-        pnl_sign = "+" if pnl >= 0 else ""
-        source = close_info.get("source", "")
-        source_note = ""
-        # Скрыто для маркетингового demo-showcase аккаунта — техническая пометка о
-        # задержке Bybit не нужна на скриншотах для промо-материалов.
-        if source == "trade_state" and int(self.state.tg_id) != DEMO_SHOWCASE_TG_ID:
-            source_note = "\nℹ️ Итог по последней цене в алгоритме (Bybit ещё не отдал closed PnL)"
-
-        entry_price = float(close_info.get("entry_price") or 0)
-        exit_price = float(close_info.get("exit_price") or 0)
-
-        # Bybit's get_closed_pnl "side" отдаёт сторону закрывающего ордера (для шорта — "Buy"),
-        # а не сторону позиции — доверять ей нельзя. Этот движок всегда торгует в одну сторону
-        # (POSITION_SIDE из .env), поэтому берём её напрямую, а не close_info.get("side").
-        change_pct = _price_change_percent(entry_price, exit_price, POSITION_SIDE)
-        pct_sign = "+" if change_pct >= 0 else ""
-        result_line = f"📈 Итог: {pct_sign}{change_pct:.2f}% ({pnl_sign}{pnl:.2f} USDT)"
-        duration_text = _format_duration(time.time() - self.state.created_at)
-
-        return (
-            "🔄 Позиция закрыта\n\n"
-            f"📊 Символ: {close_info.get('symbol') or self.state.symbol}\n"
-            f"💰 Цена входа: {entry_price:.8g}\n"
-            f"💸 Цена выхода: {exit_price:.8g}\n"
-            f"{result_line}"
-            f"{source_note}\n"
-            f"⏱ Длительность: {duration_text}"
+        # Этот движок всегда торгует в одну сторону (POSITION_SIDE из .env).
+        # Пометка о задержке Bybit скрыта для маркетингового demo-showcase аккаунта.
+        return format_close_notification(
+            close_info,
+            symbol=self.state.symbol,
+            position_side=POSITION_SIDE,
+            created_at=self.state.created_at,
+            show_source_note=int(self.state.tg_id) != DEMO_SHOWCASE_TG_ID,
         )
 
     async def _save_active_trade(self) -> None:
@@ -565,6 +539,7 @@ class TradeSession:
             return
         while not self.state.should_stop:
             price = await self._queue.get()
+            self.state.last_price_at = time.time()
             async with self._lock:
                 await self._on_price(price)
             await self._maybe_snapshot()
@@ -637,12 +612,18 @@ class TradeSession:
             s.should_stop = True
             exchange_info = await self._fetch_closed_position_from_exchange()
             close_info = self._merge_close_info(exchange_info)
-            await self._persist_closed_trade(close_info)
+            claimed = await self._persist_closed_trade(close_info)
             try:
                 await self.adapter.stop_trading(s.symbol, self.http_session)
             except Exception as e:
                 logger.warning("stop_trading after close %s: %s", s.symbol, e)
-            self._notify_user(self._format_close_notification(close_info))
+            if claimed:
+                self._notify_user(self._format_close_notification(close_info))
+            else:
+                logger.info(
+                    "Сделка %s уже закрыта сторожем — повторное уведомление не отправляю",
+                    s.trade_id,
+                )
             return
 
         if s.previous_avg_price is None or s.entry_price is None:
@@ -668,14 +649,19 @@ class TradeSession:
             s.previous_avg_price = current_avg_price
             s.previous_position_size = current_size
 
-    async def _persist_closed_trade(self, close_info: dict[str, Any]) -> None:
-        """Mongo history + statistics; ошибки не блокируют Telegram (данные уже в close_info)."""
+    async def _persist_closed_trade(self, close_info: dict[str, Any]) -> bool:
+        """
+        Mongo history + statistics; ошибки не блокируют Telegram (данные уже в close_info).
+
+        Returns False, если сделку уже закрыл сторож (trade watchdog) — тогда статистика
+        и уведомление уже сделаны им, повторять нельзя.
+        """
         s = self.state
         if s.trade_saved:
-            return
+            return False
         if self.http_session is None:
             s.closed_position_info = close_info
-            return
+            return True
 
         s.closed_position_info = close_info
         pnl_usdt = float(close_info.get("pnl_usdt") or 0)
@@ -689,9 +675,15 @@ class TradeSession:
                 trade_id=s.trade_id,
                 state="closed",
             )
-            await asyncio.to_thread(history_trades_db.save_trade_by_state, trade_doc, "closed")
+            claimed = await asyncio.to_thread(history_trades_db.claim_close, trade_doc)
         except Exception as e:
+            # Mongo недоступна: лучше уведомить и посчитать, чем молча потерять закрытие.
             logger.error("❌ Ошибка insert_closed_trade tg_id=%s: %s", s.tg_id, e, exc_info=True)
+            claimed = True
+
+        s.trade_saved = True
+        if not claimed:
+            return False
 
         try:
             await asyncio.to_thread(
@@ -702,7 +694,7 @@ class TradeSession:
         except Exception as e:
             logger.error("❌ Ошибка apply_user_statistics_delta tg_id=%s: %s", s.tg_id, e, exc_info=True)
 
-        s.trade_saved = True
+        return True
 
     async def _maybe_snapshot(self) -> None:
         now = time.time()
@@ -731,6 +723,7 @@ class AsyncTradeEngine:
         self.adapter = BybitHttpAdapter()
         self.store = TradeStateStore(REDIS_URL)
         self._tasks: dict[str, asyncio.Task] = {}
+        self._sessions: dict[str, TradeSession] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._boot_lock = threading.Lock()
@@ -753,7 +746,35 @@ class AsyncTradeEngine:
         self._loop = loop
         self.feed_hub.attach_loop(loop)
         loop.create_task(self.feed_hub.start_watch())
+        loop.create_task(self._heartbeat_loop())
         loop.run_forever()
+
+    async def _heartbeat_loop(self) -> None:
+        engine_id = os.getenv("CELERY_ENGINE_ID", "")
+        while True:
+            try:
+                payload = {
+                    session_heartbeat_key(tid): json.dumps(
+                        {
+                            "engine_id": engine_id,
+                            "ts": time.time(),
+                            "last_price_at": runner.state.last_price_at,
+                            "position_opened": runner.state.position_opened,
+                        }
+                    )
+                    for tid, runner in list(self._sessions.items())
+                }
+                if payload:
+                    await asyncio.to_thread(self._write_heartbeats, payload)
+            except Exception as e:
+                logger.warning("Session heartbeat failed: %s", e)
+            await asyncio.sleep(SESSION_HEARTBEAT_INTERVAL_SECONDS)
+
+    def _write_heartbeats(self, payload: dict[str, str]) -> None:
+        pipe = self.store.client.pipeline(transaction=False)
+        for key, value in payload.items():
+            pipe.set(key, value, ex=SESSION_HEARTBEAT_TTL_SECONDS)
+        pipe.execute()
 
     def submit_trade(
         self,
@@ -879,7 +900,21 @@ class AsyncTradeEngine:
         session_runner = TradeSession(state=state, adapter=self.adapter, feed_hub=self.feed_hub, store=self.store)
         task = asyncio.create_task(session_runner.run(), name=f"trade:{trade_id}")
         self._tasks[trade_id] = task
-        task.add_done_callback(lambda _: self._tasks.pop(trade_id, None))
+        self._sessions[trade_id] = session_runner
+        task.add_done_callback(lambda _: self._forget_session(trade_id))
+
+    def _forget_session(self, trade_id: str) -> None:
+        self._tasks.pop(trade_id, None)
+        self._sessions.pop(trade_id, None)
+
+        def _delete_heartbeat() -> None:
+            try:
+                self.store.client.delete(session_heartbeat_key(trade_id))
+            except Exception:
+                pass  # ключ сам истечёт через SESSION_HEARTBEAT_TTL_SECONDS
+
+        if self._loop is not None:
+            self._loop.run_in_executor(None, _delete_heartbeat)
 
     def running_count(self) -> int:
         return len(self._tasks)

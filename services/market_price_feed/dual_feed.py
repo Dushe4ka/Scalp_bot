@@ -18,12 +18,14 @@ from bybit_logic.bybit_func.price_stream import PriceStream
 from services.market_price_feed.failover_logic import (
     LegState,
     extract_ticker_price,
+    find_silent_symbols,
     maybe_failover,
 )
 from bybit_logic.feeds.feed_config import (
     FEED_DOWN_SEC,
     FEED_STALE_SEC,
     MARKET_FEED_SYMBOL_IDLE_SEC,
+    MARKET_FEED_SYMBOL_SILENT_SEC,
     PRICE_FEED_FAILOVER_HYSTERESIS_SEC,
 )
 from bybit_logic.feeds.redis_market_keys import (
@@ -60,12 +62,14 @@ class DualMarketFeed:
         down_sec: float = FEED_DOWN_SEC,
         hysteresis_sec: float = PRICE_FEED_FAILOVER_HYSTERESIS_SEC,
         symbol_idle_sec: float = MARKET_FEED_SYMBOL_IDLE_SEC,
+        symbol_silent_sec: float = MARKET_FEED_SYMBOL_SILENT_SEC,
     ) -> None:
         self._redis_url = redis_url or REDIS_URL
         self._stale_sec = stale_sec
         self._down_sec = down_sec
         self._hysteresis_sec = hysteresis_sec
         self._symbol_idle_sec = symbol_idle_sec
+        self._symbol_silent_sec = symbol_silent_sec
         self._primary = LegState(FeedSource.PRIMARY)
         self._backup = LegState(FeedSource.BACKUP)
         self._active: FeedSource = FeedSource.PRIMARY
@@ -74,6 +78,9 @@ class DualMarketFeed:
         self._redis = None
         self._symbol_streams: dict[str, dict[FeedSource, PriceStream]] = {}
         self._symbol_last_publish: dict[str, float] = {}
+        # Last WS message of any kind per symbol (either leg); start time until first message.
+        self._symbol_last_message: dict[str, float] = {}
+        self._symbols_recreating: set[str] = set()
         self._active_symbols: set[str] = set()
         self._symbol_lock = threading.Lock()
         self._ensure_listener: threading.Thread | None = None
@@ -135,6 +142,7 @@ class DualMarketFeed:
 
     def _make_handler(self, symbol: str, leg: LegState):
         def _handler(message: dict[str, Any]) -> None:
+            self._symbol_last_message[symbol] = time.time()
             price = self._extract_price(message)
             if price is None:
                 return
@@ -149,13 +157,23 @@ class DualMarketFeed:
         with self._symbol_lock:
             if symbol not in self._symbol_streams:
                 self._symbol_streams[symbol] = {}
+            # Set before connecting: if start() fails, the silent-symbol check retries it.
+            self._symbol_last_message.setdefault(symbol, time.time())
             if leg.name in self._symbol_streams[symbol]:
                 return
         stream = PriceStream(symbol, self._make_handler(symbol, leg), testnet=False)
         stream.start()
         with self._symbol_lock:
-            self._symbol_streams.setdefault(symbol, {})[leg.name] = stream
-            self._active_symbols.add(symbol)
+            legs = self._symbol_streams.setdefault(symbol, {})
+            # Concurrent ensure (signal listener vs silent-symbol recreate) may have won the race:
+            # keep theirs, close ours — otherwise the loser WS is never stopped.
+            duplicate = leg.name in legs
+            if not duplicate:
+                legs[leg.name] = stream
+                self._active_symbols.add(symbol)
+        if duplicate:
+            stream.stop()
+            return
         logger.info("Started %s WS for %s", leg.name.value, symbol)
 
     def ensure_symbol(self, symbol: str) -> None:
@@ -177,6 +195,7 @@ class DualMarketFeed:
         with self._symbol_lock:
             streams = self._symbol_streams.pop(symbol, None)
             self._active_symbols.discard(symbol)
+            self._symbol_last_message.pop(symbol, None)
         if not streams:
             return
         for stream in streams.values():
@@ -207,6 +226,49 @@ class DualMarketFeed:
                 continue
             if (now - last) >= self._symbol_idle_sec:
                 self._stop_symbol(symbol)
+
+    def _restart_silent_symbols(self) -> None:
+        with self._symbol_lock:
+            last_seen = {
+                symbol: self._symbol_last_message.get(symbol, 0.0)
+                for symbol in self._symbol_streams
+            }
+        silent = find_silent_symbols(
+            last_seen, now=time.time(), silent_sec=self._symbol_silent_sec
+        )
+        for symbol in silent:
+            with self._symbol_lock:
+                if symbol in self._symbols_recreating:
+                    continue
+                self._symbols_recreating.add(symbol)
+            # pybit connects synchronously (retries can take long) — don't block the main loop.
+            threading.Thread(
+                target=self._recreate_symbol,
+                args=(symbol,),
+                name=f"feed-recreate-{symbol}",
+                daemon=True,
+            ).start()
+
+    def _recreate_symbol(self, symbol: str) -> None:
+        from bybit_logic.feeds.symbol_session_ref import get_symbol_refcount
+
+        try:
+            self._stop_symbol(symbol)
+            if get_symbol_refcount(symbol) <= 0:
+                # Nobody needs it: recreating would leave a WS the idle reaper never closes.
+                logger.info("Silent symbol %s has no sessions — stopped, not recreated", symbol)
+                return
+            logger.warning(
+                "No WS messages for %s for >%.0fs — recreating its WS streams",
+                symbol,
+                self._symbol_silent_sec,
+            )
+            self.ensure_symbol(symbol)
+        except Exception as e:
+            logger.error("Failed to recreate WS streams for %s: %s", symbol, e)
+        finally:
+            with self._symbol_lock:
+                self._symbols_recreating.discard(symbol)
 
     def _listen_ensure_loop(self) -> None:
         import redis
@@ -298,6 +360,7 @@ class DualMarketFeed:
             while not self._stop.is_set():
                 self._maybe_failover()
                 self._reap_idle_symbols()
+                self._restart_silent_symbols()
                 self._set_meta()
                 time.sleep(tick_interval)
         except KeyboardInterrupt:

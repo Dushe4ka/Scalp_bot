@@ -73,3 +73,24 @@ def maybe_failover(
     if new_active != active:
         return new_active, now
     return active, last_failover_ts
+
+
+def find_silent_symbols(
+    last_message_ts: dict[str, float],
+    *,
+    now: float,
+    silent_sec: float,
+) -> list[str]:
+    """
+    Symbols whose WS streams have sent nothing for longer than silent_sec.
+
+    Leg-level staleness can't catch this: one dead per-symbol WS stays invisible
+    while other symbols keep the leg's last_tick_ts fresh.
+    """
+    if silent_sec <= 0:
+        return []
+    return sorted(
+        symbol
+        for symbol, ts in last_message_ts.items()
+        if ts > 0 and (now - ts) > silent_sec
+    )

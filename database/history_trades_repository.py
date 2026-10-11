@@ -67,6 +67,48 @@ class HistoryTradesRepository:
             logger.error("Ошибка save_trade_by_state: %s", e, exc_info=True)
             raise
 
+    def claim_close(self, trade_doc: dict[str, Any]) -> bool:
+        """
+        Атомарно переводит сделку active → closed.
+
+        Returns True, если закрыл именно этот вызов — только он должен считать статистику
+        и уведомлять пользователя. False — сделку уже закрыл кто-то другой (движок или сторож).
+        """
+        trade_id = trade_doc.get("trade_id")
+        tg_id = trade_doc.get("tg_id")
+        if not trade_id or tg_id is None:
+            raise ValueError("Для claim_close обязательны trade_id и tg_id")
+
+        now = datetime.utcnow()
+        payload = dict(trade_doc)
+        payload.pop("created_at", None)  # время открытия остаётся из active-записи
+        payload["state"] = "closed"
+        payload["updated_at"] = now
+        payload["closed_at"] = now
+        query = {"trade_id": trade_id, "tg_id": int(tg_id)}
+        try:
+            result = self._history.update_one(
+                {**query, "state": "active"}, {"$set": payload}, upsert=False
+            )
+            if result.matched_count:
+                return True
+            if self._history.find_one(query, {"_id": 1}) is not None:
+                return False
+            # Active-записи не было (не сохранилась при открытии) — создаём закрытую.
+            payload["created_at"] = now
+            self._history.insert_one(payload)
+            return True
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка claim_close: %s", e, exc_info=True)
+            raise
+
+    def list_active_trades(self) -> list[dict[str, Any]]:
+        try:
+            return list(self._history.find({"state": "active"}, {"_id": 0}))
+        except pymongo_errors.PyMongoError as e:
+            logger.error("Ошибка list_active_trades: %s", e, exc_info=True)
+            raise
+
     def apply_user_statistics_delta(self, tg_id: int, pnl_usdt: float) -> None:
         inc_fields: dict[str, float | int] = {
             "statistics.total_trades": 1,

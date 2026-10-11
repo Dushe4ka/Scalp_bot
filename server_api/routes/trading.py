@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 from server_api.schemas import SymbolRequest, CustomAlgoLaunchRequest, UserSymbolRequest, UserRequest
 from logger_config import setup_logger
@@ -263,6 +265,27 @@ async def stop_trading_all():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def _mass_stop_targets() -> list[dict]:
+    """
+    Пользователи для массовой остановки: все с активной подпиской + все, у кого есть
+    открытая сделка (подписка могла истечь, пока сделка висела — её тоже надо закрыть).
+    """
+    from database.history_trades_repository import history_trades_db
+    from demo_showcase.config import DEMO_SHOWCASE_TG_ID
+
+    users = list(await db.list_trading_candidates())
+    known = {int(u.get("tg_id") or 0) for u in users}
+    active_docs = await asyncio.to_thread(history_trades_db.list_active_trades)
+    # Демо-витрина торгует ключами из .env, а не из users — её не трогаем, как и раньше.
+    extra_ids = {int(d.get("tg_id") or 0) for d in active_docs} - known - {0, int(DEMO_SHOWCASE_TG_ID)}
+    for tg_id in sorted(extra_ids):
+        user = await db.get_user(tg_id)
+        if user:
+            logger.info("Массовая остановка: добавлен tg_id=%s (открытая сделка без активной подписки)", tg_id)
+            users.append(user)
+    return users
+
+
 @router.post("/stop_trading_all_subscribers")
 async def stop_trading_all_subscribers():
     """
@@ -270,7 +293,7 @@ async def stop_trading_all_subscribers():
     (каждый пользователь — через его API key/secret).
     """
     try:
-        users = await db.list_trading_candidates()
+        users = await _mass_stop_targets()
         processed = 0
         stopped = 0
         skipped_no_keys = 0

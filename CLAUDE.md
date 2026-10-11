@@ -55,7 +55,12 @@ CELERY_ENGINE_ID=0 celery -A celery_app.celery_config worker -Q trade_engine_0 -
 CELERY_ENGINE_ID=1 celery -A celery_app.celery_config worker -Q trade_engine_1 --concurrency=1 --loglevel=info
 # router: queues default, trade_user (hedge/custom, subscription checks)
 celery -A celery_app.celery_config worker -Q default,trade_user --concurrency=1 --loglevel=info
+# trade watchdog (check_active_trades every 60s) — own queue so a blocking hedge/custom trade on the router can't stall it
+celery -A celery_app.celery_config worker -Q watchdog --concurrency=1 --loglevel=info
 ```
+
+All Celery processes (router, engines, demo_showcase, watchdog, beat) can be supervised by PM2 via
+`deploy/ecosystem.celery.config.js` instead of bare screen sessions.
 
 `TRADE_ENGINE_COUNT` (`.env`) must match the number of engine workers actually running. See
 [docs/phase2_scaling.md](docs/phase2_scaling.md) and [quickstart.md](quickstart.md) for full deploy sequencing
@@ -144,6 +149,22 @@ is kept for reference/rollback at `bybit_logic/api_algorithms/_legacy/short_bu_t
 root `.env`. Notable dual-naming support: `MONGO_URI`/`MONGO_DB` (new) vs `MONGODB_URI`/`MONGODB_DB` (legacy, still
 read as fallback), and `LOCAL_SERVER_URL` (internal calls from bot/Celery to the API) vs `SERVER_URL` (public URL,
 only used for the startup notification message).
+
+### Trade watchdog & price liveness
+
+- `AsyncTradeEngine` writes a per-session heartbeat `trade_alive:{trade_id}` (TTL 60s, every 15s, independent of
+  ticks) carrying `last_price_at`. `celery_app/trade_watchdog.py` (`check_active_trades`, queue `watchdog`) walks
+  `history_trades` `state: active` and: alerts admins if a live session has had no price for 5 min; alerts if the
+  session is gone but the exchange position is still open ("orphaned" — no breakeven/trailing); if the session is
+  gone and the position is closed (manual close / dead worker) it closes the record, applies statistics and sends
+  the user the same "🔄 Позиция закрыта" message as the engine (`trade_close_format.py`).
+- Closing is atomic: `history_trades_db.claim_close()` flips `active → closed`; only the winner (engine or
+  watchdog) applies statistics and notifies — never both.
+- Price feed self-healing: the engine hub falls back to a local WS after `PRICE_FEED_TICK_TIMEOUT_SEC` (15s) without
+  Redis ticks for a symbol and recreates a silent local WS; the feed recreates a symbol's WS after
+  `MARKET_FEED_SYMBOL_SILENT_SEC` (60s) without messages. Global refcount: exactly one release per successful acquire.
+- Logs: `logger_config.DailyFileHandler` writes `logs/YYYY-MM-DD.log` by the *current* date (switches at midnight);
+  before this fix long-lived processes kept writing to the file named after their start date.
 
 ### Subscription & API-key lifecycle (Celery Beat)
 
