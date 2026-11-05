@@ -10,7 +10,9 @@ from typing import Any
 
 from bybit_logic.bybit_func.price_stream import PriceStream
 from bybit_logic.feeds.feed_config import (
+    PRICE_FEED_LOCAL_BACKOFF_SEC,
     PRICE_FEED_LOCAL_FALLBACK,
+    PRICE_FEED_LOCAL_MAX_FAST_RETRIES,
     PRICE_FEED_REDIS_ENABLED,
     PRICE_FEED_STALE_SEC,
     PRICE_FEED_TICK_TIMEOUT_SEC,
@@ -85,7 +87,13 @@ class MarketFeedHub:
             await asyncio.sleep(2.0)
 
     async def _restart_silent_local_streams(self) -> None:
-        """Local WS can die silently too (pybit gives up reconnecting) — recreate it."""
+        """Local WS can die silently too (pybit gives up reconnecting) — recreate it.
+
+        Если сам коннект к бирже раз за разом не удаётся (не монета виновата, а, например,
+        throttling хендшейка), не долбим WS каждые PRICE_FEED_TICK_TIMEOUT_SEC вечно —
+        после PRICE_FEED_LOCAL_MAX_FAST_RETRIES подряд неудач переходим на редкие попытки
+        раз в PRICE_FEED_LOCAL_BACKOFF_SEC (см. _ensure_local_stream).
+        """
         now = time.time()
         with self._lock:
             silent = [
@@ -93,13 +101,14 @@ class MarketFeedHub:
                 for symbol, entry in self._symbols.items()
                 if entry["queues"]
                 and entry.get("local_started")
-                and now - entry.get("local_last_message", 0.0) > PRICE_FEED_TICK_TIMEOUT_SEC
+                and now - entry.get("local_last_message", 0.0)
+                > self._retry_timeout_sec(entry)
             ]
         for symbol, entry in silent:
             logger.warning(
                 "Local WS for %s silent for >%.0fs — recreating it",
                 symbol,
-                PRICE_FEED_TICK_TIMEOUT_SEC,
+                self._retry_timeout_sec(entry),
             )
             with self._lock:
                 stream = entry.get("local_stream")
@@ -111,6 +120,12 @@ class MarketFeedHub:
                 except Exception:
                     pass
             await self._ensure_local_stream(symbol, entry)
+
+    @staticmethod
+    def _retry_timeout_sec(entry: dict[str, Any]) -> float:
+        if entry.get("local_fail_count", 0) >= PRICE_FEED_LOCAL_MAX_FAST_RETRIES:
+            return PRICE_FEED_LOCAL_BACKOFF_SEC
+        return PRICE_FEED_TICK_TIMEOUT_SEC
 
     async def start_watch(self) -> None:
         if self._status_watch_task is None and self._loop is not None:
@@ -233,18 +248,41 @@ class MarketFeedHub:
             # pybit connects synchronously — keep it off the event loop.
             await asyncio.to_thread(stream.start)
         except Exception as e:
-            # local_started stays True: _restart_silent_local_streams retries after the timeout.
+            # local_started stays True: _restart_silent_local_streams retries, but at a
+            # growing interval once this keeps failing — see _retry_timeout_sec.
             logger.error("Local WS fallback failed to start for %s: %s", symbol, e)
+            with self._lock:
+                fail_count = entry.get("local_fail_count", 0) + 1
+                entry["local_fail_count"] = fail_count
+            if fail_count == PRICE_FEED_LOCAL_MAX_FAST_RETRIES:
+                self._alert_feed_stuck(symbol)
             return
         with self._lock:
             still_used = self._symbols.get(symbol) is entry and bool(entry["queues"])
             if still_used:
                 entry["local_stream"] = stream
+                entry["local_fail_count"] = 0
         if not still_used:
             # Last session unsubscribed while we were connecting.
             stream.stop()
             return
         logger.info("Local WS fallback started for %s in engine process", symbol)
+
+    @staticmethod
+    def _alert_feed_stuck(symbol: str) -> None:
+        try:
+            from celery_app.tasks.notifications import send_notification_to_admins_task
+
+            send_notification_to_admins_task.delay(
+                "🚨 Фид не может подключиться к бирже по монете\n\n"
+                f"📊 Символ: {symbol}\n"
+                "ℹ️ Несколько подряд неудачных попыток WS-подключения — переходим на "
+                "редкие повторы вместо постоянного долбления биржи. Брейк-ивен/трейлинг "
+                "по открытым позициям на этой монете не будут работать, пока фид не "
+                "восстановится — проверьте позиции вручную."
+            )
+        except Exception as e:
+            logger.warning("Не удалось отправить алерт о зависшем фиде %s: %s", symbol, e)
 
     def _publish_local(self, symbol: str, price: float) -> None:
         entry = self._symbols.get(symbol)

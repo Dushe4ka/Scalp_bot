@@ -113,12 +113,34 @@ class TradeWatchdogTests(unittest.TestCase):
         self.assertEqual(self.history.claimed, [])
 
     def test_alive_session_without_prices_alerts_admin_once(self):
-        dog = self._make([_doc()], FakeExchange())
+        # Позиция всё ещё реально открыта на бирже — алертить и ждать, закрывать нечего.
+        dog = self._make([_doc()], FakeExchange(open_size=100))
         self._heartbeat("1:BTWUSDT:abc", 0.0)  # never got a price (incident 11.10)
         dog.run_once()
         dog.run_once()
         self.assertEqual(len(self.admin_msgs), 1)
         self.assertIn("не получает цены", self.admin_msgs[0])
+        self.assertEqual(self.history.claimed, [])
+
+    def test_alive_session_without_prices_but_already_closed_manually_is_finalized(self):
+        # Инцидент 05.11: heartbeat пишется отдельным циклом независимо от цены, поэтому
+        # сессия с мёртвым фидом никогда сама не заметит ручное закрытие (_check_position_once
+        # вызывается только из _on_price). Watchdog должен сверяться с биржей сам, а не
+        # алертить "нет цены" до бесконечности по уже закрытой сделке.
+        closed = {"entry_price": 1.5, "exit_price": 1.35, "pnl_usdt": 15.0, "size": 100.0,
+                  "close_ts": NOW - 60, "source": "exchange"}
+        dog = self._make([_doc()], FakeExchange(open_size=0, closed=closed))
+        self._heartbeat("1:BTWUSDT:abc", 0.0)  # never got a price, then closed manually
+
+        self.assertEqual(dog.run_once()["closed"], 1)
+
+        self.assertEqual(self.history.stats, [(1, 15.0)])
+        self.assertEqual(len(self.user_msgs), 1)
+        self.assertTrue(self.user_msgs[0][1].startswith("🔄 Позиция закрыта"))
+        self.assertFalse(any("не получает цены" in m for m in self.admin_msgs))
+
+        dog.run_once()  # record is closed now -> nothing repeats
+        self.assertEqual(len(self.user_msgs), 1)
 
     def test_dead_session_within_grace_is_skipped(self):
         dog = self._make([_doc(age_sec=30)], FakeExchange(open_size=5))

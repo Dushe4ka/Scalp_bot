@@ -69,6 +69,12 @@ SNAPSHOT_INTERVAL_SECONDS = 3.0
 SESSION_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SESSION_HEARTBEAT_TTL_SECONDS = 60
 
+# Если цены нет дольше этого — всё равно опрашиваем биржу напрямую (_check_position_once
+# иначе вызывается только из _on_price и никогда не выполнится, если тиков вообще нет).
+# Без этого сессия с мёртвым фидом никогда сама не узнает, что позицию закрыли вручную,
+# и будет вечно висеть зомби-задачей, не отпуская слот движка и подписку на фид.
+POSITION_POLL_TIMEOUT_SEC = float(os.getenv("POSITION_POLL_TIMEOUT_SEC", "20.0"))
+
 
 def session_heartbeat_key(trade_id: str) -> str:
     return f"trade_alive:{trade_id}"
@@ -538,7 +544,15 @@ class TradeSession:
         if self._queue is None:
             return
         while not self.state.should_stop:
-            price = await self._queue.get()
+            try:
+                price = await asyncio.wait_for(self._queue.get(), timeout=POSITION_POLL_TIMEOUT_SEC)
+            except asyncio.TimeoutError:
+                # Цены нет — но позицию всё равно нужно проверять напрямую на бирже,
+                # иначе ручное закрытие при мёртвом фиде никогда не будет замечено.
+                async with self._lock:
+                    await self._check_position_once()
+                await self._maybe_snapshot()
+                continue
             self.state.last_price_at = time.time()
             async with self._lock:
                 await self._on_price(price)

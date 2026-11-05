@@ -135,6 +135,24 @@ class TradeWatchdog:
             last_price_at = float(heartbeat.get("last_price_at") or 0)
             silent_since = last_price_at or created_ts
             if silent_since and now - silent_since > WATCHDOG_NO_PRICE_ALERT_SEC:
+                # Пульс пишет отдельный _heartbeat_loop в движке независимо от цены, а
+                # _check_position_once сессия вызывает только изнутри _on_price — если цены
+                # нет совсем, сессия никогда не узнает сама, что позицию уже закрыли вручную.
+                # Раз мы уже решили бить тревогу, заодно сверимся с биржей вместо того чтобы
+                # слепо доверять пульсу и алертить бесконечно по уже закрытой сделке.
+                keys = self._get_user_keys(tg_id)
+                if keys:
+                    api_key, api_secret = keys
+                    try:
+                        open_size = self._exchange.get_open_size(api_key, api_secret, symbol)
+                    except Exception as e:
+                        logger.warning(
+                            "Watchdog: не удалось сверить биржу для %s при алерте no_price: %s",
+                            trade_id, e,
+                        )
+                        open_size = None
+                    if open_size == 0:
+                        return self._close_outside_algorithm(doc, api_key, api_secret, created_ts, now)
                 self._alert_once(
                     "no_price",
                     trade_id,

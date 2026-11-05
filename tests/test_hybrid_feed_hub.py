@@ -160,6 +160,42 @@ class MarketFeedHubTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(fanout.done())
         self.local_stream.start.assert_not_called()
 
+    async def test_persistent_local_failures_back_off_and_alert_once(self):
+        """Инцидент 04-05.11: CLANKERUSDT долбился каждые 15с часами подряд.
+
+        После PRICE_FEED_LOCAL_MAX_FAST_RETRIES неудач подряд интервал ретрая должен
+        вырасти до PRICE_FEED_LOCAL_BACKOFF_SEC, и админам должен уйти ровно один алерт.
+        """
+        self._set_mode(PriceSourceMode.LOCAL)
+        self.local_stream.start.side_effect = RuntimeError("Too many connection attempts")
+        with patch.object(hub_mod, "PRICE_FEED_LOCAL_MAX_FAST_RETRIES", 3), \
+                patch("celery_app.tasks.notifications.send_notification_to_admins_task") as admin_task:
+            queue = await self.hub.subscribe("CLANKERUSDT")  # fail #1
+            entry = self.hub._symbols["CLANKERUSDT"]
+            self.assertEqual(self.hub._retry_timeout_sec(entry), hub_mod.PRICE_FEED_TICK_TIMEOUT_SEC)
+
+            entry["local_started"] = False
+            await self.hub._ensure_local_stream("CLANKERUSDT", entry)  # fail #2
+            admin_task.delay.assert_not_called()
+
+            entry["local_started"] = False
+            await self.hub._ensure_local_stream("CLANKERUSDT", entry)  # fail #3 -> threshold
+
+            self.assertEqual(entry["local_fail_count"], 3)
+            self.assertEqual(self.hub._retry_timeout_sec(entry), hub_mod.PRICE_FEED_LOCAL_BACKOFF_SEC)
+            admin_task.delay.assert_called_once()
+            self.assertIn("CLANKERUSDT", admin_task.delay.call_args[0][0])
+
+            entry["local_started"] = False
+            await self.hub._ensure_local_stream("CLANKERUSDT", entry)  # fail #4 -> no repeat alert
+            admin_task.delay.assert_called_once()
+
+        self.local_stream.start.side_effect = None  # a later success resets the counter
+        entry["local_started"] = False
+        await self.hub._ensure_local_stream("CLANKERUSDT", entry)
+        self.assertEqual(entry["local_fail_count"], 0)
+        await self.hub.unsubscribe("CLANKERUSDT", queue)
+
     async def test_subscribe_failure_rolls_back_refcount(self):
         self._set_mode(PriceSourceMode.REDIS)
         failing = AsyncMock(side_effect=RuntimeError("redis down"))

@@ -49,25 +49,29 @@ class ClaimCloseTests(unittest.TestCase):
         self.assertEqual(inserted["state"], "closed")
 
 
+def _closed_position_session():
+    state = engine_module.TradeState(
+        trade_id="1:BTWUSDT:a", symbol="BTWUSDT", tg_id=1, name="u",
+        sum_for_trades=10.0, algorithms_sum_for_trades=100.0, api_key="k", api_secret="s",
+        entry_price=1.5, position_qty=100.0, previous_avg_price=1.5, previous_position_size=100.0,
+    )
+    adapter = MagicMock()
+    adapter.get_positions_by_symbol = AsyncMock(
+        return_value={"result": {"list": [{"size": "0", "avgPrice": "0"}]}}
+    )
+    adapter.get_result_position_info = AsyncMock(
+        return_value={"is_open": False, "pnl_usdt": 4.0, "entry_price": 1.5, "exit_price": 1.44}
+    )
+    adapter.stop_trading = AsyncMock()
+    session = engine_module.TradeSession(state=state, adapter=adapter, feed_hub=None, store=None)
+    session.http_session = object()
+    session._notify_user = MagicMock()
+    return session
+
+
 class EngineCloseNotificationTests(unittest.IsolatedAsyncioTestCase):
     def _session(self):
-        state = engine_module.TradeState(
-            trade_id="1:BTWUSDT:a", symbol="BTWUSDT", tg_id=1, name="u",
-            sum_for_trades=10.0, algorithms_sum_for_trades=100.0, api_key="k", api_secret="s",
-            entry_price=1.5, position_qty=100.0, previous_avg_price=1.5, previous_position_size=100.0,
-        )
-        adapter = MagicMock()
-        adapter.get_positions_by_symbol = AsyncMock(
-            return_value={"result": {"list": [{"size": "0", "avgPrice": "0"}]}}
-        )
-        adapter.get_result_position_info = AsyncMock(
-            return_value={"is_open": False, "pnl_usdt": 4.0, "entry_price": 1.5, "exit_price": 1.44}
-        )
-        adapter.stop_trading = AsyncMock()
-        session = engine_module.TradeSession(state=state, adapter=adapter, feed_hub=None, store=None)
-        session.http_session = object()
-        session._notify_user = MagicMock()
-        return session
+        return _closed_position_session()
 
     async def _close(self, claim_result: bool):
         session = self._session()
@@ -87,6 +91,45 @@ class EngineCloseNotificationTests(unittest.IsolatedAsyncioTestCase):
         session._notify_user.assert_not_called()
         stats.assert_not_called()
         self.assertTrue(session.state.should_stop)
+
+
+class PriceLoopSilentFeedTests(unittest.IsolatedAsyncioTestCase):
+    """Инцидент 05.11: мёртвый фид не должен делать сессию вечным зомби."""
+
+    async def test_no_ticks_still_detects_manual_close_via_direct_poll(self):
+        session = _closed_position_session()
+        session._queue = asyncio.Queue()  # остаётся пустой — тиков нет вообще
+        session._maybe_snapshot = AsyncMock()
+
+        with patch.object(engine_module, "POSITION_POLL_TIMEOUT_SEC", 0.01), \
+                patch.object(engine_module.history_trades_db, "claim_close", return_value=True), \
+                patch.object(engine_module.history_trades_db, "apply_user_statistics_delta"):
+            await asyncio.wait_for(session._price_loop(), timeout=2.0)
+
+        self.assertTrue(session.state.should_stop)
+        session._notify_user.assert_called_once()
+        session.adapter.get_positions_by_symbol.assert_called()
+
+    async def test_no_ticks_with_position_still_open_keeps_looping(self):
+        session = _closed_position_session()
+        session.adapter.get_positions_by_symbol = AsyncMock(
+            return_value={"result": {"list": [{"size": "100", "avgPrice": "1.5"}]}}
+        )
+        session._queue = asyncio.Queue()
+        session._maybe_snapshot = AsyncMock()
+
+        with patch.object(engine_module, "POSITION_POLL_TIMEOUT_SEC", 0.01):
+            task = asyncio.create_task(session._price_loop())
+            await asyncio.sleep(0.05)
+            still_running = not task.done()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertTrue(still_running)
+        self.assertFalse(session.state.should_stop)
+        session._notify_user.assert_not_called()
+        session.adapter.get_positions_by_symbol.assert_awaited()
 
 
 class EngineHeartbeatTests(unittest.IsolatedAsyncioTestCase):

@@ -32,6 +32,12 @@ PRICE_FEED_DOWN_SEC = _float("PRICE_FEED_DOWN_SEC", 15.0)
 PRICE_FEED_FAILOVER_HYSTERESIS_SEC = _float("PRICE_FEED_FAILOVER_HYSTERESIS_SEC", 30.0)
 # Engine: no Redis ticks for a symbol this long → open local WS for it (per-symbol, ignores global feed status).
 PRICE_FEED_TICK_TIMEOUT_SEC = _float("PRICE_FEED_TICK_TIMEOUT_SEC", 15.0)
+# Local WS fallback keeps failing to connect (e.g. exchange/IP throttling the handshake
+# itself, not just this one symbol) → after this many consecutive failures, stop retrying
+# every PRICE_FEED_TICK_TIMEOUT_SEC and fall back to the much slower PRICE_FEED_LOCAL_BACKOFF_SEC
+# cadence instead of hammering the WS endpoint forever, and alert admins once.
+PRICE_FEED_LOCAL_MAX_FAST_RETRIES = _int("PRICE_FEED_LOCAL_MAX_FAST_RETRIES", 5)
+PRICE_FEED_LOCAL_BACKOFF_SEC = _float("PRICE_FEED_LOCAL_BACKOFF_SEC", 300.0)
 
 MAX_SESSIONS_PER_ENGINE = _int("MAX_SESSIONS_PER_ENGINE", 30)
 TRADE_ENGINE_COUNT = _int("TRADE_ENGINE_COUNT", 2)
