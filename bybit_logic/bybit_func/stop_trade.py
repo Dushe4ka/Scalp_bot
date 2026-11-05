@@ -91,23 +91,28 @@ def close_all_positions(session: HTTP):
             symbol = position['symbol']
             side = position['side']
             size = position['size']
+            pos_idx = position.get('positionIdx')
             
             # Определяем противоположную сторону для закрытия
             close_side = "Sell" if side == "Buy" else "Buy"
             
-            response = session.place_order(
-                category="linear",
-                symbol=symbol,
-                side=close_side,
-                orderType="Market",
-                qty=size,
-                reduceOnly=True
-            )
+            kwargs = {
+                "category": "linear",
+                "symbol": symbol,
+                "side": close_side,
+                "orderType": "Market",
+                "qty": size,
+                "reduceOnly": True,
+            }
+            # Для hedge mode закрываем конкретную ногу по positionIdx.
+            if pos_idx not in (None, "", 0, "0"):
+                kwargs["positionIdx"] = int(pos_idx)
+            response = session.place_order(**kwargs)
             
             if response.get('retCode') == 0:
-                print(f"✅ Позиция {side} {size} {symbol} успешно закрыта")
+                print(f"✅ Позиция {side} {size} {symbol} (idx={pos_idx}) успешно закрыта")
             else:
-                print(f"❌ Ошибка закрытия позиции {symbol}: {response.get('retMsg')}")
+                print(f"❌ Ошибка закрытия позиции {symbol} (idx={pos_idx}): {response.get('retMsg')}")
                 
         except Exception as e:
             print(f"❌ Ошибка при закрытии позиции {position.get('symbol', 'unknown')}: {e}")
