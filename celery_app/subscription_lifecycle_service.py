@@ -86,7 +86,12 @@ def _send_user_notification(tg_id: int, text: str) -> bool:
 
     try:
         result = send_notification_to_user_task.apply(args=[int(tg_id), text])
-        payload = result.result if result else {}
+        if not result.successful():
+            # После исчерпания ретраев .result — это сам исходный эксепшн (например
+            # requests.exceptions.HTTPError), а не dict, поэтому .get("ok") ниже на нём упал бы.
+            logger.error("Не удалось отправить уведомление tg_id=%s: %s", tg_id, result.result)
+            return False
+        payload = result.result or {}
         return bool(payload.get("ok"))
     except Exception as e:
         logger.error("Не удалось отправить уведомление tg_id=%s: %s", tg_id, e, exc_info=True)
